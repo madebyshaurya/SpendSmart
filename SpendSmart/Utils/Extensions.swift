@@ -8,12 +8,28 @@
 import SwiftUI
 
 extension Font {
-    static func spaceGrotesk(size: CGFloat) -> Font {
-        Font.custom("SpaceGrotesk-Variable", size: size)
+    static func spaceGrotesk(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        switch weight {
+        case .medium:
+            return Font.custom("SpaceGrotesk-Light_Medium", size: size)
+        case .bold:
+            return Font.custom("SpaceGrotesk-Light_Bold", size: size)
+        default:
+            return Font.custom("SpaceGrotesk-Light_Regular", size: size)
+        }
     }
     
-    static func instrumentSans(size: CGFloat) -> Font {
-        Font.custom("InstrumentSans-Variable", size: size)
+    static func instrumentSans(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        switch weight {
+        case .medium:
+            return Font.custom("InstrumentSans-Regular_Medium", size: size)
+        case .semibold:
+            return Font.custom("InstrumentSans-Regular_SemiBold", size: size)
+        case .bold:
+            return Font.custom("InstrumentSans-Regular_Bold", size: size)
+        default:
+            return Font.custom("InstrumentSans-Regular", size: size)
+        }
     }
     
     static func instrumentSerif(size: CGFloat) -> Font {

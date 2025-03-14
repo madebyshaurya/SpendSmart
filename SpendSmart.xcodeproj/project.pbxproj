@@ -14,9 +14,22 @@
 		507C569A2D8254DC00CA1FD5 /* SpendSmart.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpendSmart.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		50A8B0032D84B68E00772840 /* Exceptions for "SpendSmart" folder in "SpendSmart" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 507C56992D8254DC00CA1FD5 /* SpendSmart */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		507C569C2D8254DC00CA1FD5 /* SpendSmart */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				50A8B0032D84B68E00772840 /* Exceptions for "SpendSmart" folder in "SpendSmart" target */,
+			);
 			path = SpendSmart;
 			sourceTree = "<group>";
 		};
