@@ -62,3 +62,5 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+SpendSmart/APIKeys.swift
