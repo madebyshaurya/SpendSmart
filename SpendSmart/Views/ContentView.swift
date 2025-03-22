@@ -10,21 +10,36 @@ import AuthenticationServices
 import Supabase
 
 struct ContentView: View {
-    @State var isLoggedIn = false
-    @State var userEmail: String = ""
+    @StateObject private var appState = AppState()
     
     var body: some View {
-        if isLoggedIn {
-            DashboardView(email: userEmail, onSignOut: {
-                isLoggedIn = false
-                userEmail = ""
-            })
+        if appState.isLoggedIn {
+            TabView {
+                Tab("Home", systemImage: "house") {
+                    DashboardView(email: appState.userEmail)
+                        .environmentObject(appState)
+                }
+                Tab("History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90") {
+                    NavigationView {
+                        HistoryView()
+                    }
+                }
+                Tab("Settings", systemImage: "gear") {
+                    NavigationView {
+                        SettingsView()
+                            .environmentObject(appState)
+                    }
+                }
+            }
         } else {
-            LaunchScreen(isLoggedIn: $isLoggedIn, userEmail: $userEmail)
+            LaunchScreen(appState: appState)
+                .task {
+                    // Check for existing session on app launch
+                    if let user = supabase.auth.currentUser {
+                        appState.userEmail = user.email ?? "No Email"
+                        appState.isLoggedIn = true
+                    }
+                }
         }
     }
-}
-
-#Preview {
-    ContentView()
 }

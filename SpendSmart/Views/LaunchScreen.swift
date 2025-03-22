@@ -10,8 +10,7 @@ import AuthenticationServices
 import Supabase
 
 struct LaunchScreen: View {
-    @Binding var isLoggedIn: Bool
-    @Binding var userEmail: String
+    @ObservedObject var appState: AppState
     @State private var currentPage = 0
     @Environment(\.colorScheme) private var colorScheme
     
@@ -52,6 +51,7 @@ struct LaunchScreen: View {
     var body: some View {
         ZStack {
             backgroundColor
+                .ignoresSafeArea(.all)
             
             VStack(spacing: 0) {
                 // Header
@@ -173,8 +173,8 @@ struct LaunchScreen: View {
         // Check if there's an active session
         if let user = supabase.auth.currentUser {
             DispatchQueue.main.async {
-                self.userEmail = user.email ?? "No Email"
-                self.isLoggedIn = true
+                appState.userEmail = user.email ?? "No Email"
+                appState.isLoggedIn = true
             }
         }
     }
@@ -191,16 +191,18 @@ struct LaunchScreen: View {
             do {
                 let session = try await supabase.auth.signInWithIdToken(credentials: .init(provider: .apple, idToken: tokenString))
                 
-                print(session)
+                print(session.user.id)
+//                self.userId = session.user.id
                 
                 if let user = supabase.auth.currentUser {
                     DispatchQueue.main.async {
-                        self.userEmail = user.email ?? "No Email"
-                        self.isLoggedIn = true
+                        appState.userEmail = user.email ?? "No Email"
+                        appState.isLoggedIn = true
                     }
                 }
                 
                 print("✅ Successfully signed in with Apple via Supabase!")
+                
             } catch {
                 print("❌ Supabase authentication failed: \(error.localizedDescription)")
             }
@@ -220,8 +222,4 @@ struct LaunchScreen: View {
         autoScrollTimer?.invalidate()
         autoScrollTimer = nil
     }
-}
-
-#Preview {
-    LaunchScreen(isLoggedIn: Binding.constant(false), userEmail: Binding.constant(""))
 }
