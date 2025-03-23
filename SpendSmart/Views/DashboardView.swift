@@ -16,7 +16,8 @@ struct DashboardView: View {
     @State private var currentUserReceipts: [Receipt] = []
     @Environment(\.colorScheme) private var colorScheme
     @State private var showNewExpenseSheet = false
-    
+    @State private var isRefreshing = false // Added state for refresh control
+
     func fetchUserReceipts() async {
         if let userId = supabase.auth.currentUser?.id {
             do {
@@ -25,30 +26,30 @@ struct DashboardView: View {
                     .select()
                     .eq("user_id", value: userId)
                     .execute()
-                
+
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .custom { decoder in
                     let container = try decoder.singleValueContainer()
                     let dateString = try container.decode(String.self)
-                    
+
                     let formatter = DateFormatter()
                     formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
                     formatter.locale = Locale(identifier: "en_US_POSIX")
                     formatter.timeZone = TimeZone(secondsFromGMT: 0)
-                    
+
                     if let date = formatter.date(from: dateString) {
                         return date
                     }
-                    
+
                     throw DecodingError.dataCorruptedError(
                         in: container,
                         debugDescription: "Cannot decode date: \(dateString)"
                     )
                 }
-                
+
                 let receipts = try decoder.decode([Receipt].self, from: response.data)
                 currentUserReceipts = receipts
-                //                print("Receipts 🧾: ", receipts)
+                // print("Receipts 🧾: ", receipts)
             } catch let error as DecodingError {
                 print("❌ Decoding Error fetching receipts: \(error)")
             } catch {
@@ -56,7 +57,7 @@ struct DashboardView: View {
             }
         }
     }
-    
+
     func insertReceipt(newReceipt: Receipt) async {
         do {
             let encoder = JSONEncoder()
@@ -65,18 +66,18 @@ struct DashboardView: View {
             dateFormatter.locale = Locale(identifier: "en_US_POSIX")
             dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
             encoder.dateEncodingStrategy = .formatted(dateFormatter)
-            
+
             try await supabase
                 .from("receipts")
                 .insert(newReceipt)
                 .execute()
-            
+
             print("✅ Receipt inserted successfully!")
         } catch {
             print("❌ Error inserting receipt: \(error.localizedDescription)")
         }
     }
-    
+
     var body: some View {
         ZStack {
             colorScheme == .dark ? Color(hex: "121212").ignoresSafeArea() : Color(hex: "F4F4F4").ignoresSafeArea()
@@ -122,7 +123,12 @@ struct DashboardView: View {
                 }
                 .padding(.horizontal)
             }
-            
+            .refreshable { // Added refreshable modifier
+                isRefreshing = true
+                await fetchUserReceipts()
+                isRefreshing = false
+            }
+
             VStack {
                 Spacer()
                 Button {
@@ -133,7 +139,7 @@ struct DashboardView: View {
                             .font(.system(size: 20))
                             .foregroundColor(.white)
                             .padding(.leading, 10)
-                        
+
                         Text("New Expense")
                             .font(.instrumentSans(size: 20, weight: .semibold))
                             .foregroundColor(.white)
@@ -150,7 +156,7 @@ struct DashboardView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
-            
+
             .sheet(isPresented: $showNewExpenseSheet) {
                 NewExpenseView(onReceiptAdded: { newReceipt in
                     Task {
@@ -167,16 +173,16 @@ struct DashboardView: View {
             }
         }
     }
-    
+
     func calculateCostByCategory(receipts: [Receipt]) -> [(category: String, total: Double)] {
         var categoryTotals: [String: Double] = [:]
-        
+
         for receipt in receipts {
             for item in receipt.items {
                 categoryTotals[item.category, default: 0] += item.price
             }
         }
-        
+
         return categoryTotals.map { (category: $0.key, total: $0.value) }
     }
 }
@@ -184,7 +190,7 @@ struct DashboardView: View {
 struct ReceiptCardView: View {
     let receipt: Receipt
     @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(receipt.store_name)
