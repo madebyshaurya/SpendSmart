@@ -41,7 +41,7 @@ struct NewExpenseView: View {
                             .foregroundColor(colorScheme == .dark ? Color(hex: "DDDDDD") : Color(hex: "555555"))
 
                         Text("Select a Receipt Image")
-                            .font(.instrumentSans(size: 24, weight: .medium))
+                            .font(.instrumentSans(size: 28, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
                         Text("Take a photo of your receipt or select one from your gallery")

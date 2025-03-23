@@ -81,6 +81,7 @@ struct DashboardView: View {
     var body: some View {
         ZStack {
             colorScheme == .dark ? Color(hex: "121212").ignoresSafeArea() : Color(hex: "F4F4F4").ignoresSafeArea()
+            
             ScrollView {
                 VStack(spacing: 20) {
                     if (supabase.auth.currentUser?.id) != nil {
@@ -90,6 +91,7 @@ struct DashboardView: View {
                                     .font(.instrumentSans(size: 16))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .transition(.opacity)
+                                    .padding()
                             } else {
                                 let costByCategory = calculateCostByCategory(receipts: currentUserReceipts)
 
@@ -97,24 +99,37 @@ struct DashboardView: View {
                                 Chart(costByCategory, id: \.category) { item in
                                     SectorMark(
                                         angle: .value("Total", item.total),
-                                        innerRadius: .ratio(0.65) // Make it a donut
+                                        innerRadius: .ratio(0.65), // Make it a donut
+                                        angularInset: 2.0
                                     )
-                                    .cornerRadius(5)
+                                    .cornerRadius(12) // Slightly round the corners for smoothness
                                     .foregroundStyle(by: .value("Category", item.category))
                                     .annotation(position: .overlay) {
                                         Text("$\(item.total, specifier: "%.2f")")
-                                            .font(.caption)
+                                            .font(.spaceGrotesk(size: 16, weight: .semibold)) // Make the text slightly larger
                                             .foregroundColor(.white)
+                                            .frame(width: 80, height: 30) // Set a fixed size for alignment
+                                            .background(Color.black.opacity(0.7)) // Add a semi-transparent background to make the text stand out
+                                            .cornerRadius(8) // Round the background corners
+                                            .padding(4) // Add some padding around the text
                                     }
                                 }
                                 .chartLegend(.visible)
                                 .frame(height: 300) // Adjust size as needed
+                                .padding(.horizontal) // Optional padding for better spacing
 
                                 // Optional: Text list below the chart
                                 ForEach(costByCategory, id: \.category) { item in
-                                    Text("\(item.category): $\(item.total, specifier: "%.2f")")
-                                        .font(.instrumentSans(size: 16))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    HStack {
+                                        Text("\(item.category):")
+                                            .font(.instrumentSans(size: 16))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        Spacer()
+                                        Text("$\(item.total, specifier: "%.2f")")
+                                            .font(.instrumentSans(size: 16, weight: .semibold))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    }
+                                    .padding(.horizontal)
                                 }
                             }
                         }
