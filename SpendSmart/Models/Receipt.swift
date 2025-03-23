@@ -8,9 +8,7 @@
 
 import Foundation
 
-// In your Receipt.swift file, add a CodingKeys enum and implement init(from:) method
-
-struct Receipt: Identifiable, Codable {
+struct Receipt: Identifiable, Codable, Equatable {
     var id: UUID
     var user_id: UUID
     var image_url: String
@@ -22,10 +20,10 @@ struct Receipt: Identifiable, Codable {
     var purchase_date: Date
     var currency: String
     var payment_method: String
+    var total_tax: Double
 }
 
-
-struct ReceiptItem: Identifiable, Codable {
+struct ReceiptItem: Identifiable, Codable, Equatable {
     var id: UUID
     var name: String
     var price: Double

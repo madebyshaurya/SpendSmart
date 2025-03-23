@@ -8,12 +8,12 @@
 import SwiftUI
 
 struct NewExpenseView: View {
+    var onReceiptAdded: (Receipt) -> Void
+    @Environment(\.dismiss) var dismiss
     
     var body: some View {
-        Text("Hello, World!")
+        NavigationView {
+            Text("TODO: Add new expense form here")
+        }
     }
-}
-
-#Preview {
-    NewExpenseView()
 }
