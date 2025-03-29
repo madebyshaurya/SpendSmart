@@ -29,3 +29,4 @@ struct ReceiptItem: Identifiable, Codable, Equatable {
     var price: Double
     var category: String
 }
+

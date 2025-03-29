@@ -9,6 +9,7 @@ import SwiftUI
 import PhotosUI
 import AVFoundation
 import Vision
+import GoogleGenerativeAI
 
 struct NewExpenseView: View {
     var onReceiptAdded: (Receipt) -> Void
@@ -18,7 +19,8 @@ struct NewExpenseView: View {
     @State private var showCamera = false
     @State private var selectedImage: UIImage?
     @State private var isAddingExpense = false // For loading indicator
-
+    
+    
     var body: some View {
         NavigationView {
             VStack {
@@ -99,21 +101,14 @@ struct NewExpenseView: View {
                 if selectedImage != nil {
                     Button {
                         isAddingExpense = true
-                        let dummyReceipt = Receipt(
-                            id: UUID(),
-                            user_id: supabase.auth.currentUser?.id ?? UUID(),
-                            image_url: "placeholder_url",
-                            total_amount: 50.00,
-                            items: [ReceiptItem(id: UUID(), name: "Example Item", price: 50.00, category: "Food")],
-                            store_name: "Example Store",
-                            store_address: "123 Main St",
-                            receipt_name: "My Receipt",
-                            purchase_date: Date(),
-                            currency: "USD",
-                            payment_method: "Credit Card",
-                            total_tax: 5.00
-                        )
-                        onReceiptAdded(dummyReceipt)
+                        Task {
+                            let receipt = await extractDataFromImage(receiptImage: selectedImage!)
+                            if let receipt = receipt {
+                                onReceiptAdded(receipt)
+                            } else {
+                                print("Error receipt found nil")
+                            }
+                        }
                         dismiss()
                     } label: {
                         HStack {
@@ -151,6 +146,211 @@ struct NewExpenseView: View {
             }
         }
     }
+    
+    func extractDataFromImage(receiptImage: UIImage) async -> Receipt? {
+        do {
+            let systemPrompt = """
+            ### **SpendSmart Receipt Extraction System**
+
+            #### **Extraction Rules:**
+            - No missing values – every field must be correctly populated.
+            - Ensure calculations are accurate – total_amount = sum(items) + total_tax.
+            - Detect currency based on store location or tax rate.
+            - Extract payment method if present (e.g., "Credit Card", "Cash", "Mobile Payment").
+
+            #### **Item Categorization:**
+            Each item must be placed in the most appropriate category:
+            - Groceries → Food, beverages, household essentials, cleaning supplies, snacks, dairy, bakery items, frozen foods, and fresh produce.
+            - Dining → Any prepared meals, fast food, takeout, restaurant purchases, coffee shops, and catering.
+            - Shopping → Clothing, electronics, accessories, home decor, appliances, books, and general retail items.
+            - Health → Medicine, supplements, pharmacy purchases, hygiene products, skincare, and personal care items.
+            - Transport → Gasoline, electric vehicle charging, public transit fares, tolls, ride-sharing services, and parking fees.
+            - Services → Repairs, maintenance, haircuts, subscriptions (e.g., streaming, software), utilities, and professional services.
+            - Entertainment → Movie tickets, gaming, concerts, amusement parks, hobbies, toys, and streaming rentals.
+            - Other → Only if no category fits. Avoid overusing this category.
+
+            #### **Quality Check Before Output:**
+            Ensure totals are correct – verify sum of items + tax.
+            Use logical tax rates based on region/currency.
+            Extract store name, address, and date accurately.
+            
+            Goal: Fully automate receipt scanning for a seamless user experience.
+            """
+            
+            let config = GenerationConfig(
+              temperature: 1,
+              topP: 0.95,
+              topK: 40,
+              maxOutputTokens: 8192,
+              responseMIMEType: "application/json"
+            )
+
+            let model = GenerativeModel(
+                name: "gemini-2.0-flash",
+                apiKey: geminiAPIKey,
+                generationConfig: config,
+                systemInstruction: systemPrompt
+            )
+            
+            let structuredSchema = """
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "user_id": {
+                  "type": "string"
+                },
+                "image_url": {
+                  "type": "string"
+                },
+                "total_amount": {
+                  "type": "number"
+                },
+                "total_tax": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "payment_method": {
+                  "type": "string"
+                },
+                "purchase_date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "store_name": {
+                  "type": "string"
+                },
+                "store_address": {
+                  "type": "string"
+                },
+                "receipt_name": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "price": {
+                        "type": "number"
+                      },
+                      "category": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "price",
+                      "category"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "total_amount",
+                "total_tax",
+                "currency",
+                "payment_method",
+                "purchase_date",
+                "store_name",
+                "store_address",
+                "receipt_name",
+                "items"
+              ]
+            }
+            """
+            
+            let prompt = "Extract all receipt details from this image and return in this format: \(structuredSchema)."
+            let response = try await model.generateContent(prompt, receiptImage)
+            print(response.text ?? "No response received")
+            
+            // TODO: Parse response.text JSON into a Receipt object.
+            let parsedReceipt = parseReceipt(from: response.text)  // Implement this parsing function
+            return parsedReceipt
+        } catch {
+            print("Error extracting data from image: \(error)")
+            return nil
+        }
+    }
+
+    func parseReceipt(from jsonString: String?) -> Receipt? {
+        guard let jsonString = jsonString, let data = jsonString.data(using: .utf8) else {
+            print("Invalid JSON string")
+            return nil  // ✅ Ensure the function returns nil if jsonString is invalid
+        }
+
+        do {
+            let decoder = JSONDecoder()
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd" // Matches the format in JSON
+
+            decoder.dateDecodingStrategy = .formatted(dateFormatter)
+
+
+            let parsedData = try decoder.decode(TemporaryReceipt.self, from: data)
+            print("Date: \(parsedData.purchase_date)")
+            print("IS08601 Date: \(parsedData.purchase_date.ISO8601Format())")
+
+            let receipt = Receipt(
+                id: UUID(),
+                user_id: supabase.auth.currentUser?.id ?? UUID(),
+                image_url: "placeholder_url",
+                total_amount: parsedData.total_amount,
+                items: parsedData.items.map { item in
+                    ReceiptItem(
+                        id: UUID(),
+                        name: item.name,
+                        price: item.price,
+                        category: item.category
+                    )
+                },
+                store_name: parsedData.store_name,
+                store_address: parsedData.store_address,
+                receipt_name: parsedData.receipt_name,
+                purchase_date: parsedData.purchase_date,
+                currency: parsedData.currency,
+                payment_method: parsedData.payment_method,
+                total_tax: parsedData.total_tax
+            )
+
+            return receipt
+        } catch {
+            print("JSON Parsing Error: \(error)")
+            return nil  // ✅ Ensure the function returns nil if parsing fails
+        }
+    }
+
+
+    // Temporary struct to decode the JSON structure before transforming it into a `Receipt` object
+    private struct TemporaryReceipt: Codable {
+        var total_amount: Double
+        var total_tax: Double
+        var currency: String
+        var payment_method: String
+        var purchase_date: Date
+        var store_name: String
+        var store_address: String
+        var receipt_name: String
+        var items: [TemporaryReceiptItem]
+    }
+
+    private struct TemporaryReceiptItem: Codable {
+        var name: String
+        var price: Double
+        var category: String
+    }
+
 }
 
 struct ImageCaptureView: UIViewControllerRepresentable {
