@@ -17,48 +17,52 @@ struct DashboardView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var showNewExpenseSheet = false
     @State private var isRefreshing = false // For refresh control
-    
+    @State private var isLoading = false
     // MARK: - Fetch Receipts
     func fetchUserReceipts() async {
-        if let userId = supabase.auth.currentUser?.id {
-            do {
-                let response = try await supabase
-                    .from("receipts")
-                    .select()
-                    .eq("user_id", value: userId)
-                    .execute()
-                
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .custom { decoder in
-                    let container = try decoder.singleValueContainer()
-                    let dateString = try container.decode(String.self)
-                    
-                    let formatter = DateFormatter()
-                    formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-                    formatter.locale = Locale(identifier: "en_US_POSIX")
-                    formatter.timeZone = TimeZone(secondsFromGMT: 0)
-                    
-                    if let date = formatter.date(from: dateString) {
-                        return date
-                    }
-                    
-                    throw DecodingError.dataCorruptedError(
-                        in: container,
-                        debugDescription: "Cannot decode date: \(dateString)"
-                    )
+        guard let userId = supabase.auth.currentUser?.id else { return }
+        
+        isLoading = true  // Start loading
+        defer { isLoading = false }  // Ensure loading stops after fetch
+        
+        do {
+            let response = try await supabase
+                .from("receipts")
+                .select()
+                .eq("user_id", value: userId)
+                .execute()
+            
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let container = try decoder.singleValueContainer()
+                let dateString = try container.decode(String.self)
+
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+                if let date = formatter.date(from: dateString) {
+                    return date
                 }
-                
-                let receipts = try decoder.decode([Receipt].self, from: response.data)
-                withAnimation {
-                    currentUserReceipts = receipts
-                }
-            } catch let error as DecodingError {
-                print("❌ Decoding Error fetching receipts: \(error)")
-            } catch {
-                print("❌ General Error fetching receipts: \(error.localizedDescription)")
+
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Cannot decode date: \(dateString)"
+                )
             }
+            
+            let receipts = try decoder.decode([Receipt].self, from: response.data)
+            withAnimation {
+                currentUserReceipts = receipts
+            }
+        } catch let error as DecodingError {
+            print("❌ Decoding Error fetching receipts: \(error)")
+        } catch {
+            print("❌ General Error fetching receipts: \(error.localizedDescription)")
         }
     }
+
     
     // MARK: - Insert Receipt
     func insertReceipt(newReceipt: Receipt) async {
@@ -118,65 +122,70 @@ struct DashboardView: View {
             
             ScrollView {
                 VStack(spacing: 20) {
-                    // Summary Card
-                    if currentUserReceipts.count > 0 {
-                        let summary = calculateSummary(receipts: currentUserReceipts)
-                        SummaryCardView(totalExpense: summary.totalExpense,
-                                        totalTax: summary.totalTax,
-                                        receiptCount: currentUserReceipts.count)
-                            .padding(.top, 20)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                    
-                    // Chart & List of Costs by Category
-                    if currentUserReceipts.isEmpty {
-                        Text("No receipts found.")
+                    if isLoading {
+                        ProgressView("Loading receipts...")
+                            .progressViewStyle(CircularProgressViewStyle())
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .transition(.opacity)
-                            .padding()
+                            .padding(.top, 50)
                     } else {
-                        let costByCategory = calculateCostByCategory(receipts: currentUserReceipts)
-                        
-                        // Donut Chart with animation
-                        Chart(costByCategory, id: \.category) { item in
-                            SectorMark(
-                                angle: .value("Total", item.total),
-                                innerRadius: .ratio(0.65),
-                                angularInset: 2.0
-                            )
-                            .cornerRadius(12)
-                            .foregroundStyle(by: .value("Category", item.category))
-                            .annotation(position: .overlay) {
-                                Text("$\(item.total, specifier: "%.2f")")
-                                    .font(.spaceGrotesk(size: 16, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .padding(4)
-                                    .background(Color.black.opacity(0.7))
-                                    .cornerRadius(8)
-                            }
+                        if currentUserReceipts.count > 0 {
+                            let summary = calculateSummary(receipts: currentUserReceipts)
+                            SummaryCardView(totalExpense: summary.totalExpense,
+                                            totalTax: summary.totalTax,
+                                            receiptCount: currentUserReceipts.count)
+                                .padding(.top, 20)
+                                .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                        .chartLegend(.visible)
-                        .frame(height: 300)
-                        .padding(.horizontal)
-                        .transition(.slide)
-                        
-                        // List of category totals
-                        ForEach(costByCategory, id: \.category) { item in
-                            HStack {
-                                Text("\(item.category):")
-                                    .font(.instrumentSans(size: 16))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                Spacer()
-                                Text("$\(item.total, specifier: "%.2f")")
-                                    .font(.instrumentSans(size: 16, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                        if currentUserReceipts.isEmpty {
+                            Text("No receipts found.")
+                                .font(.instrumentSans(size: 16))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .transition(.opacity)
+                                .padding()
+                        } else {
+                            let costByCategory = calculateCostByCategory(receipts: currentUserReceipts)
+                            
+                            Chart(costByCategory, id: \.category) { item in
+                                SectorMark(
+                                    angle: .value("Total", item.total),
+                                    innerRadius: .ratio(0.65),
+                                    angularInset: 2.0
+                                )
+                                .cornerRadius(12)
+                                .foregroundStyle(by: .value("Category", item.category))
+                                .annotation(position: .overlay) {
+                                    Text("$\(item.total, specifier: "%.2f")")
+                                        .font(.spaceGrotesk(size: 16, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .padding(4)
+                                        .background(Color.black.opacity(0.7))
+                                        .cornerRadius(8)
+                                }
                             }
+                            .chartLegend(.visible)
+                            .frame(height: 300)
                             .padding(.horizontal)
-                            .transition(.move(edge: .leading))
+                            .transition(.slide)
+
+                            ForEach(costByCategory, id: \.category) { item in
+                                HStack {
+                                    Text("\(item.category):")
+                                        .font(.instrumentSans(size: 16))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    Spacer()
+                                    Text("$\(item.total, specifier: "%.2f")")
+                                        .font(.instrumentSans(size: 16, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                }
+                                .padding(.horizontal)
+                                .transition(.move(edge: .leading))
+                            }
                         }
                     }
                 }
+
                 .padding(.horizontal)
             }
             .refreshable {

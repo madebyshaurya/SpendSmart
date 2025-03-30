@@ -12,7 +12,7 @@ struct HistoryView: View {
     @State private var isRefreshing = false
     @State private var selectedReceipt: Receipt? = nil
     @Environment(\.colorScheme) private var colorScheme
-
+    
     // Fetch receipts from Supabase using supabaseClient
     func fetchReceipts() async {
         do {
@@ -54,6 +54,8 @@ struct HistoryView: View {
     var body: some View {
         NavigationView {
             ScrollView {
+                Text("Receipt History")
+                    .font(.instrumentSerif(size: 36))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 20)], spacing: 20) {
                     if receipts.isEmpty {
                         Text("No receipts found.")
@@ -78,11 +80,8 @@ struct HistoryView: View {
                     isRefreshing = false
                 }
             }
-            .navigationTitle("Receipt History")
             .sheet(item: $selectedReceipt) { receipt in
                 ReceiptDetailView(receipt: receipt)
-                    .presentationDetents([.medium, .large])
-                    .presentationDragIndicator(.visible)
             }
             .onAppear {
                 Task {
@@ -97,14 +96,14 @@ struct ReceiptStickyNoteView: View {
     let receipt: Receipt
     @Environment(\.colorScheme) private var colorScheme
     @State private var appearAnimation: Bool = false
-
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(receipt.receipt_name)
-                .font(.instrumentSerif(size: 18))
+            Text(receipt.store_name.capitalized)
+                .font(.instrumentSans(size: 18))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
-            Text(receipt.store_name)
+            Text(receipt.receipt_name)
                 .font(.instrumentSans(size: 14))
                 .foregroundColor(.secondary)
             Text("$\(receipt.total_amount, specifier: "%.2f")")
@@ -118,13 +117,23 @@ struct ReceiptStickyNoteView: View {
         .background(
             Group {
                 if colorScheme == .dark {
-                    LinearGradient(gradient: Gradient(colors: [Color.gray.opacity(0.3), Color.black.opacity(0.5)]),
-                                   startPoint: .topLeading,
-                                   endPoint: .bottomTrailing)
+                    MeshGradient(width: 2, height: 2, points: [
+                        [0, 0], [1, 0], [0, 1], [1, 1]
+                    ], colors: [
+                        .black,
+                        Color(hex: "222222"),
+                        Color(hex: "444444"),
+                        Color(hex: "666666")
+                    ])
                 } else {
-                    LinearGradient(gradient: Gradient(colors: [Color.yellow.opacity(0.7), Color.orange.opacity(0.4)]),
-                                   startPoint: .topLeading,
-                                   endPoint: .bottomTrailing)
+                    MeshGradient(width: 2, height: 2, points: [
+                        [0, 0], [1, 0], [0, 1], [1, 1]
+                    ], colors: [
+                        .white,
+                        Color(hex: "EEEEEE"),
+                        Color(hex: "DDDDDD"),
+                        Color(hex: "CCCCCC")
+                    ])
                 }
             }
         )
@@ -143,7 +152,7 @@ struct ReceiptStickyNoteView: View {
 struct ReceiptDetailView: View {
     let receipt: Receipt
     @Environment(\.colorScheme) private var colorScheme
-
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
