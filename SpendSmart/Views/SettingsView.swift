@@ -21,6 +21,9 @@ struct SettingsView: View {
     @State private var deleteErrorMessage = ""
     
     var body: some View {
+        
+        ZStack {
+            BackgroundGradientView()
         List {
             // Account Section
             Section(header: SectionHeaderView(title: "Account", icon: "person.circle.fill")) {
@@ -109,12 +112,21 @@ struct SettingsView: View {
                     Text(deleteErrorMessage)
                 }
             }
+            
+            // Other section
+            Section(header: SectionHeaderView(title: "Other", icon: "ellipsis.circle.fill")) {
+                NavigationLink(destination: CreditsView()) {
+                    Text("Credits")
+                        .font(.instrumentSans(size: 16))
+                }
+            }
         }
         .listStyle(.insetGrouped)
         .background(colorScheme == .dark ? Color(hex: "0A0A0A") : Color(hex: "F8FAFC"))
         .scrollContentBackground(.hidden)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
+    }
     }
     
     private func signOut() {

@@ -118,7 +118,8 @@ struct DashboardView: View {
     var body: some View {
         ZStack {
             // Background Color
-            colorScheme == .dark ? Color(hex: "121212").ignoresSafeArea() : Color(hex: "F4F4F4").ignoresSafeArea()
+//            colorScheme == .dark ? Color(hex: "121212").ignoresSafeArea() : Color(hex: "F4F4F4").ignoresSafeArea()
+            BackgroundGradientView()
             
             ScrollView {
                 VStack(spacing: 20) {
