@@ -16,7 +16,6 @@ class LogoCache: ObservableObject {
 // API client for Logo.dev
 class LogoService {
     static let shared = LogoService()
-    private let secretKey = "sk_CnGSgN-eQhaHCveI5k4LuA"
     private let publicKey = "pk_EB5BNaRARdeXj64ti60xGQ"
     
     func fetchLogo(for storeName: String) async -> (UIImage?, [Color]) {
