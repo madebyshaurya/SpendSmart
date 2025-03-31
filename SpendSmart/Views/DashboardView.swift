@@ -249,13 +249,13 @@ struct SummaryCardView: View {
     var totalTax: Double
     var receiptCount: Int
     @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
         VStack(spacing: 16) {
             Text("Home")
                 .font(.instrumentSerif(size: 36))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
-            
+
             HStack {
                 SummaryItemView(title: "Total Expenses", amount: totalExpense)
                 Divider()
@@ -263,7 +263,7 @@ struct SummaryCardView: View {
                     .background(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 SummaryItemView(title: "Tax Paid", amount: totalTax)
             }
-            
+
             Text(receiptCount == 1 ? "1 receipt" : "\(receiptCount) receipts")
                 .font(.instrumentSans(size: 16, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
@@ -271,19 +271,68 @@ struct SummaryCardView: View {
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color(hex: "282828") : Color.white)
-                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                .fill(backgroundGradient) // Using the same background style
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    accentColor.opacity(0.7),
+                                    accentColor.opacity(0.3)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: shadowColor, radius: 8, x: 0, y: 4) // Keeping a similar shadow
         )
         .padding(.horizontal)
         .transition(.opacity)
     }
+
+    // This creates the same kind of background look as your ReceiptCard
+    private var backgroundGradient: some ShapeStyle {
+        if colorScheme == .dark {
+            return LinearGradient(
+                colors: [
+                    Color.black.opacity(0.8),
+                    Color(UIColor.systemBackground).opacity(0.3)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        } else {
+            return LinearGradient(
+                colors: [
+                    Color.white,
+                    Color.white.opacity(0.92)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+
+    // This will be the color of the border. You can pick any color you like!
+    private var accentColor: Color {
+        return Color.blue // You can change this to your preferred color
+    }
+
+    // This creates a subtle shadow, similar to the ReceiptCard
+    private var shadowColor: Color {
+        colorScheme == .dark
+        ? accentColor.opacity(0.3)
+        : accentColor.opacity(0.2)
+    }
 }
 
 struct SummaryItemView: View {
-    var title: String
-    var amount: Double
+    let title: String
+    let amount: Double
     @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
         VStack {
             Text(title)
