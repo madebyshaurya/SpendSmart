@@ -10,7 +10,8 @@ import SwiftUI
 struct EmptyStateView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var isAnimating = false
-    
+    var message: String = "No receipts found" // Added a message property
+
     var body: some View {
         VStack(spacing: 20) {
             Image(systemName: "receipt")
@@ -23,11 +24,11 @@ struct EmptyStateView: View {
                         .repeatForever(autoreverses: true),
                     value: isAnimating
                 )
-            
-            Text("No receipts found")
+
+            Text(message) // Use the dynamic message
                 .font(.instrumentSerif(size: 24))
                 .foregroundColor(.secondary)
-            
+
             Text("Pull down to refresh or add a new receipt")
                 .font(.instrumentSans(size: 16))
                 .foregroundColor(.secondary.opacity(0.8))

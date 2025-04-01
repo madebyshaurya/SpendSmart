@@ -78,8 +78,28 @@ struct HistoryView: View {
     @State private var selectedReceipt: Receipt? = nil
     @StateObject private var logoCache = LogoCache.shared
     @Environment(\.colorScheme) private var colorScheme
-    
-    // Fetch receipts from Supabase using supabaseClient
+    @State private var deletingReceiptId: String? = nil
+
+    // Search and Filter States
+    @State private var searchText: String = ""
+    @State private var selectedDate: Date? = nil
+    @State private var startDate: Date? = nil
+    @State private var endDate: Date? = nil
+    @State private var filterByDateRange: Bool = false
+    @State private var sortBy: SortOption = .dateNewest
+    @State private var showFilterOptions: Bool = false
+
+    // Sorting Options
+    enum SortOption: String, CaseIterable, Identifiable {
+        case dateNewest = "Date (Newest)"
+        case dateOldest = "Date (Oldest)"
+        case storeAZ = "Store (A-Z)"
+        case storeZA = "Store (Z-A)"
+        case amountHigh = "Amount (Highest)"
+        case amountLow = "Amount (Lowest)"
+        var id: Self { self }
+    }
+
     func fetchReceipts() async {
         do {
             let response = try await supabase
@@ -125,45 +145,147 @@ struct HistoryView: View {
         }
     }
     
+    // Handle receipt deletion
+    func handleDeleteReceipt(_ receipt: Receipt) {
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+            // Remove the receipt from our local array
+            receipts.removeAll { $0.id == receipt.id }
+        }
+    }
+
+    // Computed property for filtered and sorted receipts
+    var filteredAndSortedReceipts: [Receipt] {
+        var filtered = receipts
+
+        if !searchText.isEmpty {
+            filtered = filtered.filter { receipt in
+                receipt.store_name.localizedCaseInsensitiveContains(searchText) ||
+                receipt.receipt_name.localizedCaseInsensitiveContains(searchText) ||
+                receipt.items.contains(where: { $0.name.localizedCaseInsensitiveContains(searchText) }) ||
+                String(format: "%.2f", receipt.total_amount).contains(searchText)
+            }
+        }
+
+        if filterByDateRange {
+            if let start = startDate, let end = endDate {
+                filtered = filtered.filter { receipt in
+                    receipt.purchase_date >= start && receipt.purchase_date <= end
+                }
+            } else if let singleDate = selectedDate {
+                let calendar = Calendar.current
+                if let startOfDay = calendar.date(bySettingHour: 0, minute: 0, second: 0, of: singleDate),
+                   let endOfDay = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: singleDate) {
+                    filtered = filtered.filter { receipt in
+                        receipt.purchase_date >= startOfDay && receipt.purchase_date <= endOfDay
+                    }
+                }
+            }
+        }
+
+        switch sortBy {
+        case .dateNewest:
+            filtered.sort { $0.purchase_date > $1.purchase_date }
+        case .dateOldest:
+            filtered.sort { $0.purchase_date < $1.purchase_date }
+        case .storeAZ:
+            filtered.sort { $0.store_name.localizedStandardCompare($1.store_name) == .orderedAscending }
+        case .storeZA:
+            filtered.sort { $0.store_name.localizedStandardCompare($1.store_name) == .orderedDescending }
+        case .amountHigh:
+            filtered.sort { $0.total_amount > $1.total_amount }
+        case .amountLow:
+            filtered.sort { $0.total_amount < $1.total_amount }
+        }
+
+        return filtered
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Animated background
                 BackgroundGradientView()
-                
-                ScrollView {
-                    VStack(spacing: 20) {
-                        Text("Receipt History")
-                            .font(.instrumentSerif(size: 38))
-                            .fontWeight(.bold)
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [.primary, .primary.opacity(0.7)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .shadow(color: colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.1), radius: 2, y: 2)
-                            .padding(.top, 20)
-                        
-                        // Grid layout for wider screens, list for narrow
-                        if geometry.size.width > 500 {
-                            receiptGridView
-                        } else {
-                            receiptListView
+
+                VStack {
+                    // Search Bar
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                        TextField("Search store, item, amount...", text: $searchText)
+                            .font(.instrumentSans(size: 16))
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
                         }
                     }
-                    .padding()
+                    .padding(12)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+
+                    // Filter and Sort Options
+                    HStack {
+                        Menu {
+                            Picker("Sort By", selection: $sortBy) {
+                                ForEach(SortOption.allCases) { option in
+                                    Text(option.rawValue).tag(option)
+                                }
+                            }
+                        } label: {
+                            Label("Sort", systemImage: "arrow.up.arrow.down")
+                        }
+
+                        Spacer()
+
+                        Button {
+                            withAnimation {
+                                showFilterOptions.toggle()
+                            }
+                        } label: {
+                            Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
+                    if showFilterOptions {
+                        FilterView(
+                            selectedDate: $selectedDate,
+                            startDate: $startDate,
+                            endDate: $endDate,
+                            filterByDateRange: $filterByDateRange
+                        )
+                        .transition(.slide)
+                    }
+
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            if filteredAndSortedReceipts.isEmpty {
+                                EmptyStateView(message: searchText.isEmpty && !filterByDateRange ? "Your receipt history is empty." : "No receipts match your search and filter criteria.")
+                            } else {
+                                // Grid or List View (same as before, now using filteredAndSortedReceipts)
+                                if geometry.size.width > 500 {
+                                    receiptGridView(receipts: filteredAndSortedReceipts)
+                                } else {
+                                    receiptListView(receipts: filteredAndSortedReceipts)
+                                }
+                            }
+                        }
+                        .padding()
+                    }
+                    .refreshable {
+                        isRefreshing = true
+                        await fetchReceipts()
+                        isRefreshing = false
+                    }
                 }
-                .refreshable {
-                    isRefreshing = true
-                    await fetchReceipts()
-                    isRefreshing = false
-                }
+                .padding(.top, 10) // Adjust top padding
             }
-            // Sheet presented at the parent level
             .sheet(item: $selectedReceipt) { receipt in
-                // Pass in the receipt details; you can also pass logoImage/Colors if needed.
                 ReceiptDetailView(receipt: receipt)
             }
             .onAppear {
@@ -173,41 +295,96 @@ struct HistoryView: View {
             }
         }
     }
-    
-    private var receiptGridView: some View {
+
+    private func receiptGridView(receipts: [Receipt]) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 300), spacing: 20)], spacing: 20) {
-            if receipts.isEmpty {
-                EmptyStateView()
-            } else {
-                ForEach(receipts) { receipt in
-                    EnhancedReceiptCard(receipt: receipt)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
-                                selectedReceipt = receipt
-                            }
+            ForEach(receipts) { receipt in
+                EnhancedReceiptCard(receipt: receipt, onDelete: handleDeleteReceipt)
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                            selectedReceipt = receipt
                         }
-                }
+                    }
+                    .transition(.asymmetric(
+                        insertion: .scale.combined(with: .opacity),
+                        removal: .scale.combined(with: .opacity)
+                    ))
             }
         }
+        .animation(.spring(response: 0.6, dampingFraction: 0.7), value: receipts)
     }
-    
-    private var receiptListView: some View {
+
+    private func receiptListView(receipts: [Receipt]) -> some View {
         LazyVStack(spacing: 16) {
-            if receipts.isEmpty {
-                EmptyStateView()
-            } else {
-                ForEach(receipts) { receipt in
-                    EnhancedReceiptCard(receipt: receipt)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
-                                selectedReceipt = receipt
-                            }
+            ForEach(receipts) { receipt in
+                EnhancedReceiptCard(receipt: receipt, onDelete: handleDeleteReceipt)
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                            selectedReceipt = receipt
                         }
-                }
+                    }
+                    .transition(.asymmetric(
+                        insertion: .scale.combined(with: .opacity),
+                        removal: .scale.combined(with: .opacity).combined(with: .slide)
+                    ))
             }
         }
+        .animation(.spring(response: 0.6, dampingFraction: 0.7), value: receipts)
     }
 }
+
+struct FilterView: View {
+    @Binding var selectedDate: Date?
+    @Binding var startDate: Date?
+    @Binding var endDate: Date?
+    @Binding var filterByDateRange: Bool
+
+    var body: some View {
+        VStack(spacing: 15) {
+            Toggle("Filter by Date", isOn: $filterByDateRange)
+                .padding(.horizontal)
+
+            if filterByDateRange {
+                VStack(alignment: .leading) {
+                    Text("Select Date:")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal)
+                    DatePicker("Select a date", selection: Binding(
+                        get: { selectedDate ?? Date() },
+                        set: { newValue in selectedDate = newValue }
+                    ), displayedComponents: [.date])
+                        .datePickerStyle(GraphicalDatePickerStyle())
+                        .padding(.horizontal)
+
+                    Text("Or Date Range:")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal)
+                        .padding(.top, 10)
+
+                    HStack {
+                        DatePicker("Start Date", selection: Binding(
+                            get: { startDate ?? Date() },
+                            set: { newValue in startDate = newValue }
+                        ), displayedComponents: [.date])
+                        Text("to")
+                        DatePicker("End Date", selection: Binding(
+                            get: { endDate ?? Date() },
+                            set: { newValue in endDate = newValue }
+                        ), displayedComponents: [.date])
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.05))
+        .cornerRadius(8)
+        .padding(.horizontal)
+    }
+}
+
 
 struct EnhancedReceiptCard: View {
     let receipt: Receipt
@@ -216,6 +393,10 @@ struct EnhancedReceiptCard: View {
     @State private var logoColors: [Color] = [.gray]
     @State private var isLoaded = false
     @State private var isHovered = false
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
+    // Callback for when deletion is complete
+    var onDelete: ((Receipt) -> Void)?
     
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -237,18 +418,6 @@ struct EnhancedReceiptCard: View {
                         )
                 )
                 .shadow(color: shadowColor, radius: isHovered ? 12 : 6, x: 0, y: isHovered ? 5 : 3)
-            
-            // Logo watermark in the background
-            if let logo = logoImage {
-                Image(uiImage: logo)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 120, height: 120)
-                    .opacity(0.05)
-                    .blendMode(colorScheme == .dark ? .plusLighter : .overlay)
-                    .rotationEffect(Angle(degrees: -5))
-                    .position(x: 250, y: 100)
-            }
             
             // Content
             VStack(alignment: .leading, spacing: 12) {
@@ -314,6 +483,21 @@ struct EnhancedReceiptCard: View {
                     Text(formatDate(receipt.purchase_date))
                         .font(.instrumentSans(size: 12))
                         .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
+                    // Delete button
+                    Button(action: {
+                        showDeleteConfirmation = true
+                    }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(BorderlessButtonStyle())
+                    .opacity(isHovered ? 1 : 0.3)
+                    .scaleEffect(isHovered ? 1.1 : 1)
+                    .animation(.easeInOut(duration: 0.2), value: isHovered)
                 }
                 .padding(.top, 2)
                 
@@ -386,11 +570,12 @@ struct EnhancedReceiptCard: View {
                 }
             }
             .padding(16)
+            .opacity(isDeleting ? 0 : 1) // Fade out when deleting
         }
         .frame(height: 200)
-        .scaleEffect(isHovered ? 1.02 : 1)
-        .opacity(isLoaded ? 1 : 0)
-        .offset(y: isLoaded ? 0 : 20)
+        .scaleEffect(isDeleting ? 0.8 : (isHovered ? 1.02 : 1))
+        .opacity(isLoaded ? (isDeleting ? 0 : 1) : 0)
+        .offset(y: isLoaded ? (isDeleting ? 50 : 0) : 20)
         .onAppear {
             loadLogo()
             withAnimation(.spring(response: 0.6, dampingFraction: 0.7)
@@ -401,6 +586,59 @@ struct EnhancedReceiptCard: View {
         .onHover { hovering in
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 isHovered = hovering
+            }
+        }
+        .alert("Delete Receipt", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                deleteReceipt()
+            }
+        } message: {
+            Text("Are you sure you want to delete this receipt from \(receipt.store_name)? This action cannot be undone.")
+        }
+    }
+    
+    private func deleteReceipt() {
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+            isDeleting = true
+        }
+        
+        // Add a slight delay to let the animation play before actually deleting from DB
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            Task {
+                do {
+                    // Delete from Supabase
+                    let response = try await supabase
+                        .from("receipts")
+                        .delete()
+                        .eq("id", value: receipt.id)
+                        .execute()
+                    
+                    // Check if delete was successful
+                    if response.status == 200 || response.status == 204 {
+                        print("Receipt deleted successfully: \(receipt.id)")
+                        // Call the onDelete callback to update the UI
+                        await MainActor.run {
+                            onDelete?(receipt)
+                        }
+                    } else {
+                        print("Failed to delete receipt: \(response.status)")
+                        // Revert animation if delete failed
+                        await MainActor.run {
+                            withAnimation {
+                                isDeleting = false
+                            }
+                        }
+                    }
+                } catch {
+                    print("Error deleting receipt: \(error.localizedDescription)")
+                    // Revert animation if delete failed
+                    await MainActor.run {
+                        withAnimation {
+                            isDeleting = false
+                        }
+                    }
+                }
             }
         }
     }
