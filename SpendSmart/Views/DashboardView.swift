@@ -18,6 +18,7 @@ struct DashboardView: View {
     @State private var showNewExpenseSheet = false
     @State private var isRefreshing = false // For refresh control
     @State private var isLoading = false
+    @State private var showingEarned = false // false = showing Spent, true = showing Earned
     // MARK: - Fetch Receipts
     func fetchUserReceipts() async {
         guard let userId = supabase.auth.currentUser?.id else { return }
@@ -117,36 +118,42 @@ struct DashboardView: View {
     // MARK: - Body
     var body: some View {
         ZStack {
-            // Background Color
-//            colorScheme == .dark ? Color(hex: "121212").ignoresSafeArea() : Color(hex: "F4F4F4").ignoresSafeArea()
             BackgroundGradientView()
             
             ScrollView {
                 VStack(spacing: 20) {
+                    // App title at top
+                    Text("SpendSmart")
+                        .font(.instrumentSerifItalic(size: 36))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 10)
+                    
                     if isLoading {
                         ProgressView("Loading receipts...")
                             .progressViewStyle(CircularProgressViewStyle())
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .padding(.top, 50)
+                            .padding(.top, 30)
+                    } else if currentUserReceipts.isEmpty {
+                        Text("No receipts found.")
+                            .font(.instrumentSans(size: 16))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .padding()
                     } else {
-                        if currentUserReceipts.count > 0 {
-                            let summary = calculateSummary(receipts: currentUserReceipts)
-                            SummaryCardView(totalExpense: summary.totalExpense,
-                                            totalTax: summary.totalTax,
-                                            receiptCount: currentUserReceipts.count)
-                                .padding(.top, 20)
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-
-                        if currentUserReceipts.isEmpty {
-                            Text("No receipts found.")
-                                .font(.instrumentSans(size: 16))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .transition(.opacity)
-                                .padding()
-                        } else {
-                            let costByCategory = calculateCostByCategory(receipts: currentUserReceipts)
+//                        let summary = calculateSummary(receipts: currentUserReceipts)
+                        let costByCategory = calculateCostByCategory(receipts: currentUserReceipts)
+                        
+                        // Monthly Bar Chart
+                        MonthlyBarChartView(receipts: currentUserReceipts)
+                            .padding(.bottom, 5)
+                        
+                        // Category List View
+                        ExpenseCategoryListView(categoryCosts: costByCategory)
+                            .padding(.bottom, 5)
+                        
+                        // Moved Donut Chart to bottom
+                        VStack(spacing: 16) {
                             
                             Chart(costByCategory, id: \.category) { item in
                                 SectorMark(
@@ -157,7 +164,7 @@ struct DashboardView: View {
                                 .cornerRadius(12)
                                 .foregroundStyle(by: .value("Category", item.category))
                                 .annotation(position: .overlay) {
-                                    Text("$\(item.total, specifier: "%.2f")")
+                                    Text("$\(Int(item.total))")
                                         .font(.spaceGrotesk(size: 16, weight: .semibold))
                                         .foregroundColor(.white)
                                         .padding(4)
@@ -166,28 +173,23 @@ struct DashboardView: View {
                                 }
                             }
                             .chartLegend(.visible)
-                            .frame(height: 300)
-                            .padding(.horizontal)
-                            .transition(.slide)
-
-                            ForEach(costByCategory, id: \.category) { item in
-                                HStack {
-                                    Text("\(item.category):")
-                                        .font(.instrumentSans(size: 16))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    Spacer()
-                                    Text("$\(item.total, specifier: "%.2f")")
-                                        .font(.instrumentSans(size: 16, weight: .semibold))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                }
-                                .padding(.horizontal)
-                                .transition(.move(edge: .leading))
-                            }
+                            .frame(height: 250)
+                            .padding(30)
+                            .background(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .fill(colorScheme == .dark ?
+                                          Color.black.opacity(0.5) :
+                                          Color.white.opacity(0.9))
+                                    .shadow(color: colorScheme == .dark ?
+                                            Color.blue.opacity(0.2) :
+                                            Color.black.opacity(0.1),
+                                            radius: 8, x: 0, y: 4)
+                            )
+                            .padding()
                         }
                     }
                 }
-
-                .padding(.horizontal)
+                .padding(.bottom, 100) // Add padding for FAB
             }
             .refreshable {
                 isRefreshing = true
@@ -222,7 +224,6 @@ struct DashboardView: View {
                     .animation(.spring(response: 0.3, dampingFraction: 0.5), value: showNewExpenseSheet)
                 }
                 .padding(.bottom, 20)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .sheet(isPresented: $showNewExpenseSheet) {
@@ -343,6 +344,227 @@ struct SummaryItemView: View {
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+struct MonthlyBarChartView: View {
+    var receipts: [Receipt]
+    @Environment(\.colorScheme) private var colorScheme
+    
+    // Function to group receipts by month
+    func receiptsByMonth() -> [(month: String, total: Double)] {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMM"
+        
+        var monthlyTotals: [String: Double] = [:]
+        let calendar = Calendar.current
+        
+        // Initialize with last 8 months
+        let currentDate = Date()
+        for i in 0..<8 {
+            if let date = calendar.date(byAdding: .month, value: -i, to: currentDate) {
+                let monthStr = dateFormatter.string(from: date)
+                monthlyTotals[monthStr] = 0
+            }
+        }
+        
+        // Sum receipts by month
+        for receipt in receipts {
+            let monthStr = dateFormatter.string(from: receipt.purchase_date)
+            monthlyTotals[monthStr, default: 0] += receipt.total_amount
+        }
+        
+        // Sort by month (chronologically)
+        let sortedMonths = monthlyTotals.keys.sorted { month1, month2 in
+            let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            return months.firstIndex(of: month1)! < months.firstIndex(of: month2)!
+        }
+        
+        return sortedMonths.prefix(8).map { (month: $0, total: monthlyTotals[$0]!) }
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Monthly")
+                    .font(.instrumentSans(size: 24))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                
+                Spacer()
+            }
+            
+            let monthlyData = receiptsByMonth()
+            // Make sure we have data before showing the chart
+            if !monthlyData.isEmpty {
+                Chart(monthlyData, id: \.month) { item in
+                    BarMark(
+                        x: .value("Month", item.month),
+                        y: .value("Amount", item.total)
+                    )
+                    .cornerRadius(6)
+                    .foregroundStyle(Color.blue.gradient)
+                }
+                .chartYAxis {
+                    AxisMarks(preset: .extended, position: .leading) { value in
+                        if let doubleValue = value.as(Double.self) {
+                            AxisGridLine()
+                            AxisValueLabel {
+                                Text("$\(Int(doubleValue))")
+                                    .font(.instrumentSans(size: 12))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                            }
+                        }
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks { value in
+                        AxisValueLabel {
+                            if let month = value.as(String.self) {
+                                Text(month)
+                                    .font(.instrumentSans(size: 12))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                            }
+                        }
+                    }
+                }
+                .frame(height: 200)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ?
+                      Color.black.opacity(0.5) :
+                      Color.white.opacity(0.9))
+                .shadow(color: colorScheme == .dark ?
+                        Color.blue.opacity(0.2) :
+                        Color.black.opacity(0.1),
+                        radius: 8, x: 0, y: 4)
+        )
+        .padding(.horizontal)
+    }
+}
+
+struct ExpenseCategoryListView: View {
+    var categoryCosts: [(category: String, total: Double)]
+    @Environment(\.colorScheme) private var colorScheme
+
+    // Category icon mapping
+    func iconForCategory(_ category: String) -> (name: String, color: Color) {
+        switch category.lowercased() {
+        case "rent", "housing":
+            return ("house.fill", .red)
+        case "bills", "utilities":
+            return ("creditcard.fill", .blue)
+        case "groceries", "food":
+            return ("cart.fill", .green)
+        case "internet", "wifi":
+            return ("wifi", .purple)
+        case "tax":
+            return ("dollarsign.circle.fill", .orange)
+        case "transport", "travel":
+            return ("car.fill", .yellow)
+        case "entertainment", "fun":
+            return ("gamecontroller.fill", .pink)
+        case "shopping", "clothing":
+            return ("bag.fill", .cyan)
+        case "health", "medical":
+            return ("cross.case.fill", .mint)
+        case "education", "school":
+            return ("book.fill", .teal)
+        case "subscriptions", "services":
+            return ("person.crop.circle.fill", .indigo)
+        default:
+            return ("tag.fill", .gray)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            let sortedCategories = categoryCosts.sorted(by: { $0.total > $1.total })
+            ForEach(sortedCategories.indices, id: \.self) { index in
+                categoryRow(item: sortedCategories[index], isFirst: index == 0, isLast: index == sortedCategories.count - 1)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ?
+                      Color.black.opacity(0.5) :
+                      Color.white.opacity(0.9))
+                .shadow(color: colorScheme == .dark ?
+                            Color.blue.opacity(0.2) :
+                            Color.black.opacity(0.1),
+                        radius: 8, x: 0, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.blue.opacity(0.5),
+                            Color.blue.opacity(0.2)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .padding(.horizontal)
+    }
+
+    // Extracted category row into a separate function
+    private func categoryRow(item: (category: String, total: Double), isFirst: Bool, isLast: Bool) -> some View {
+        let iconInfo = iconForCategory(item.category)
+
+        let rowContent = HStack {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(iconInfo.color.opacity(0.2))
+                    .frame(width: 36, height: 36)
+
+                Image(systemName: iconInfo.name)
+                    .foregroundColor(iconInfo.color)
+                    .font(.system(size: 18))
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.category)
+                    .font(.instrumentSans(size: 16, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                Text("\(item.category.lowercased()) and related expenses")
+                    .font(.instrumentSans(size: 12))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+            }
+            .padding(.leading, 8)
+
+            Spacer()
+
+            Text("$\(Int(item.total))")
+                .font(.spaceGrotesk(size: 18, weight: .bold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+            Image(systemName: "chevron.right")
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+        }
+        .padding()
+        .background(
+            colorScheme == .dark ?
+                Color.black.opacity(0.5) :
+                Color.white.opacity(0.9)
+        )
+        .cornerRadius(isFirst ? 20 : 0)
+
+        return VStack(spacing: 0) {
+            rowContent
+
+            if !isLast {
+                Divider()
+                    .padding(.horizontal)
+                    .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+            }
+        }
     }
 }
 

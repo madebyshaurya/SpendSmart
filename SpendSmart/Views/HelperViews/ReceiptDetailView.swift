@@ -23,10 +23,11 @@ struct ReceiptDetailView: View {
     
     var body: some View {
         ZStack {
-            // Background based on logo colors
+            // Animated background based on logo colors
             backgroundGradient
                 .ignoresSafeArea()
-            
+                .transition(.opacity)
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     // Header with logo and store info
@@ -42,6 +43,7 @@ struct ReceiptDetailView: View {
                                         .stroke(Color.white.opacity(0.3), lineWidth: 1)
                                 )
                                 .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                                .transition(.scale)
                         } else {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 12)
@@ -52,6 +54,7 @@ struct ReceiptDetailView: View {
                                     .font(.spaceGrotesk(size: 36, weight: .bold))
                                     .foregroundColor(primaryLogoColor)
                             }
+                            .transition(.opacity)
                         }
                         
                         VStack(alignment: .leading, spacing: 4) {
@@ -59,10 +62,12 @@ struct ReceiptDetailView: View {
                                 .font(.instrumentSerif(size: 28))
                                 .bold()
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .transition(.move(edge: .leading))
                             
                             Text(receipt.receipt_name)
                                 .font(.instrumentSans(size: 16))
                                 .foregroundColor(.secondary)
+                                .transition(.opacity)
                             
                             HStack {
                                 Image(systemName: "calendar")
@@ -72,9 +77,11 @@ struct ReceiptDetailView: View {
                                     .foregroundColor(.secondary)
                             }
                             .padding(.top, 4)
+                            .transition(.slide)
                         }
                     }
                     .padding(.bottom, 8)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.7), value: animateContent)
                     
                     // Receipt image if available
                     if let url = URL(string: receipt.image_url),
@@ -82,12 +89,15 @@ struct ReceiptDetailView: View {
                         AsyncImage(url: url) { phase in
                             switch phase {
                             case .empty:
-                                ProgressView().frame(height: 200)
+                                ProgressView()
+                                    .frame(height: 200)
+                                    .transition(.opacity)
                             case .success(let image):
                                 image.resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .cornerRadius(16)
                                     .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                                    .transition(.scale)
                             case .failure:
                                 ZStack {
                                     RoundedRectangle(cornerRadius: 16)
@@ -104,6 +114,7 @@ struct ReceiptDetailView: View {
                                             .foregroundColor(.secondary)
                                     }
                                 }
+                                .transition(.opacity)
                             @unknown default:
                                 EmptyView()
                             }
@@ -111,14 +122,14 @@ struct ReceiptDetailView: View {
                         .transition(.opacity)
                     }
                     
-                    // Summary card
-                    VStack {
+                    // Summary card with payment, currency, and location details
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Total amount and tax section
                         HStack {
                             VStack(alignment: .leading) {
                                 Text("Total Amount")
                                     .font(.instrumentSans(size: 14))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-                                
                                 Text("$\(receipt.total_amount, specifier: "%.2f")")
                                     .font(.spaceGrotesk(size: 32, weight: .bold))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
@@ -130,7 +141,6 @@ struct ReceiptDetailView: View {
                                 Text("Tax")
                                     .font(.instrumentSans(size: 14))
                                     .foregroundColor(.secondary)
-                                
                                 Text("$\(receipt.total_tax, specifier: "%.2f")")
                                     .font(.spaceGrotesk(size: 22, weight: .bold))
                                     .foregroundColor(.secondary)
@@ -140,6 +150,7 @@ struct ReceiptDetailView: View {
                         Divider()
                             .padding(.vertical, 12)
                         
+                        // Payment & Currency section
                         HStack(spacing: 16) {
                             IconDetailView(
                                 icon: "creditcard.fill",
@@ -147,6 +158,7 @@ struct ReceiptDetailView: View {
                                 detail: receipt.payment_method,
                                 color: primaryLogoColor
                             )
+                            .transition(.move(edge: .leading))
                             
                             IconDetailView(
                                 icon: "dollarsign.circle.fill",
@@ -154,15 +166,29 @@ struct ReceiptDetailView: View {
                                 detail: receipt.currency,
                                 color: secondaryLogoColor
                             )
-                            
-                            if !receipt.store_address.isEmpty {
-                                IconDetailView(
-                                    icon: "mappin.circle.fill",
-                                    title: "Location",
-                                    detail: formatAddress(receipt.store_address),
-                                    color: tertiaryLogoColor
-                                )
+                            .transition(.move(edge: .bottom))
+                        }
+                        .animation(.spring(response: 0.6, dampingFraction: 0.7), value: animateContent)
+                        
+                        // Full location section – shows the entire store address on multiple lines.
+                        if !receipt.store_address.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: "mappin.circle.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(tertiaryLogoColor)
+                                    Text("Location")
+                                        .font(.instrumentSans(size: 14))
+                                        .foregroundColor(.secondary)
+                                }
+                                Text(receipt.store_address)
+                                    .font(.instrumentSans(size: 14))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
+                                    .lineLimit(nil)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
+                            .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: animateContent)
                         }
                     }
                     .padding(20)
@@ -173,6 +199,7 @@ struct ReceiptDetailView: View {
                     )
                     .offset(y: animateContent ? 0 : 20)
                     .opacity(animateContent ? 1 : 0)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.2), value: animateContent)
                     
                     // Items section
                     VStack(alignment: .leading, spacing: 16) {
@@ -205,11 +232,12 @@ struct ReceiptDetailView: View {
                             .foregroundColor(.secondary)
                             .font(.system(size: 24))
                     }
+                    .transition(.scale)
                 }
             }
         }
         .onAppear {
-            // Try to retrieve logo from cache first; if not, fetch it.
+            // Retrieve logo from cache first; if not, fetch it.
             if let cached = logoCache.logoCache[receipt.store_name.lowercased()] {
                 logoImage = cached.image
                 logoColors = cached.colors
@@ -244,6 +272,7 @@ struct ReceiptDetailView: View {
                             y: geometry.size.height * (i == 0 ? -0.3 : i == 1 ? 0.4 : 0.1)
                         )
                         .blur(radius: 100)
+                        .transition(.scale)
                 }
             }
         }

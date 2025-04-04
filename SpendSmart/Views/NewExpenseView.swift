@@ -19,6 +19,61 @@ struct NewExpenseView: View {
     @State private var showCamera = false
     @State private var selectedImage: UIImage?
     @State private var isAddingExpense = false // For loading indicator
+    @State private var progressStep: ProcessingStep?
+    @State private var rotationDegrees: Double = 0
+
+    enum ProcessingStep: String, CaseIterable {
+        case extractingText = "Extracting Text"
+        case analyzingReceipt = "Analyzing Receipt"
+        case savingToDatabase = "Saving to Database"
+        case complete = "Complete!"
+        case error = "Error Processing Receipt"
+        
+        var systemImage: String {
+            switch self {
+            case .extractingText:
+                return "text.viewfinder"
+            case .analyzingReceipt:
+                return "doc.text.magnifyingglass"
+            case .savingToDatabase:
+                return "arrow.down.doc"
+            case .complete:
+                return "checkmark.circle"
+            case .error:
+                return "exclamationmark.triangle"
+            }
+        }
+        
+        var description: String {
+            switch self {
+            case .extractingText:
+                return "Reading receipt details..."
+            case .analyzingReceipt:
+                return "Identifying items and prices..."
+            case .savingToDatabase:
+                return "Adding to your expenses..."
+            case .complete:
+                return "Receipt processed successfully!"
+            case .error:
+                return "Sorry, couldn't process this receipt"
+            }
+        }
+        
+        var color: Color {
+            switch self {
+            case .extractingText:
+                return .blue
+            case .analyzingReceipt:
+                return .purple
+            case .savingToDatabase:
+                return .green
+            case .complete:
+                return .green
+            case .error:
+                return .red
+            }
+        }
+    }
     
     
     var body: some View {
@@ -41,11 +96,11 @@ struct NewExpenseView: View {
                         Image(systemName: "receipt")
                             .font(.system(size: 64))
                             .foregroundColor(colorScheme == .dark ? Color(hex: "DDDDDD") : Color(hex: "555555"))
-
+                        
                         Text("Select a Receipt Image")
                             .font(.instrumentSans(size: 28, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
-
+                        
                         Text("Take a photo of your receipt or select one from your gallery")
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(colorScheme == .dark ? Color(hex: "AAAAAA") : Color(hex: "666666"))
@@ -55,10 +110,74 @@ struct NewExpenseView: View {
                     .padding(.vertical, 40)
                     .transition(.opacity) // Add transition
                 }
-
+                
+                if isAddingExpense, let step = progressStep {
+                    ZStack {
+                        VStack(spacing: 25) {
+                            // Progress Circle
+                            ZStack {
+                                // Track Circle
+                                Circle()
+                                    .stroke(lineWidth: 15)
+                                    .opacity(0.1)
+                                    .foregroundColor(step.color)
+                                
+                                // Progress Circle
+                                Circle()
+                                    .trim(from: 0.0, to: min(CGFloat(ProcessingStep.allCases.firstIndex(of: step)! + 1) / CGFloat(ProcessingStep.allCases.count - 1), 1.0))
+                                    .stroke(style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
+                                    .foregroundColor(step.color)
+                                    .rotationEffect(Angle(degrees: 270.0))
+                                    .animation(.easeInOut(duration: 0.6), value: step)
+                                
+                                // Rotating Trim
+                                Circle()
+                                    .trim(from: 0.0, to: 0.2)
+                                    .stroke(style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                                    .foregroundColor(step.color.opacity(0.7))
+                                    .rotationEffect(Angle(degrees: rotationDegrees))
+                                    .onAppear {
+                                        withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
+                                            rotationDegrees = 360
+                                        }
+                                    }
+                                
+                                // Icon
+                                Image(systemName: step.systemImage)
+                                    .font(.system(size: 40))
+                                    .foregroundColor(step.color)
+                                    .transition(.scale.combined(with: .opacity))
+                                    .id(step) // Force view recreation for transition
+                            }
+                            .frame(width: 180, height: 180)
+                            
+                            // Status Text
+                            VStack(spacing: 10) {
+                                Text(step.rawValue)
+                                    .font(.instrumentSans(size: 24, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                
+                                Text(step.description)
+                                    .font(.instrumentSans(size: 16))
+                                    .foregroundColor(colorScheme == .dark ? Color(hex: "BBBBBB") : Color(hex: "555555"))
+                                    .multilineTextAlignment(.center)
+                                    .transition(.opacity)
+                                    .id(step.description) // Force view recreation for transition
+                            }
+                            .padding(.horizontal, 20)
+                        }
+                        .opacity(isAddingExpense ? 1 : 0)
+                        .offset(y: isAddingExpense ? 0 : 50)
+                        .animation(.easeInOut(duration: 0.3), value: isAddingExpense)
+                    }
+                    .transition(.opacity)
+                }
+                
                 Spacer()
-
-                HStack(spacing: 20) {
+                
+                if !isAddingExpense {
+                    
+                    HStack(spacing: 20) {
                     Button {
                         showCamera = true
                     } label: {
@@ -76,7 +195,7 @@ struct NewExpenseView: View {
                         )
                         .foregroundColor(.white)
                     }
-
+                    
                     Button {
                         showImagePicker = true
                     } label: {
@@ -95,32 +214,68 @@ struct NewExpenseView: View {
                         .foregroundColor(.white)
                     }
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 10)
-
+                    .padding(.horizontal)
+                    .padding(.bottom, 10)
+                
                 if selectedImage != nil {
                     Button {
                         isAddingExpense = true
                         Task {
-                            let receipt = await extractDataFromImage(receiptImage: selectedImage!)
-                            if let receipt = receipt {
-                                onReceiptAdded(receipt)
-                            } else {
-                                print("Error receipt found nil")
+                            do {
+                                // Start progress animation sequence
+                                withAnimation {
+                                    progressStep = .extractingText
+                                }
+                                
+                                // Simulate extraction time (in real implementation, this will be the actual processing time)
+                                try await Task.sleep(nanoseconds: 1_500_000_000)
+                                
+                                withAnimation {
+                                    progressStep = .analyzingReceipt
+                                }
+                                
+                                // Process the receipt
+                                try await Task.sleep(nanoseconds: 500_000_000)
+                                let receipt = await extractDataFromImage(receiptImage: selectedImage!)
+                                
+                                withAnimation {
+                                    progressStep = .savingToDatabase
+                                }
+                                
+                                try await Task.sleep(nanoseconds: 200_000_000)
+                                
+                                withAnimation {
+                                    progressStep = .complete
+                                }
+                                
+                                try await Task.sleep(nanoseconds: 400_000_000)
+                                
+                                if let receipt = receipt {
+                                    onReceiptAdded(receipt)
+                                    dismiss()
+                                } else {
+                                    withAnimation {
+                                        progressStep = .error
+                                    }
+                                    try await Task.sleep(nanoseconds: 500_000_000)
+                                    isAddingExpense = false
+                                    progressStep = nil
+                                }
+                            } catch {
+                                withAnimation {
+                                    progressStep = .error
+                                }
+                                try? await Task.sleep(nanoseconds: 500_000_000)
+                                isAddingExpense = false
+                                progressStep = nil
                             }
                         }
-                        dismiss()
                     } label: {
                         HStack {
-                            if isAddingExpense {
-                                ProgressView()
-                                    .tint(.white)
-                            } else {
-                                Image(systemName: "plus.circle")
-                                    .font(.system(size: 18))
-                                Text("Add Expense")
-                                    .font(.instrumentSans(size: 18, weight: .semibold))
-                            }
+                            Image(systemName: "plus.circle")
+                                .font(.system(size: 18))
+                            Text("Add Expense")
+                                .font(.instrumentSans(size: 18, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
@@ -135,8 +290,9 @@ struct NewExpenseView: View {
                     .disabled(isAddingExpense)
                 }
             }
+            }
             .padding()
-            .background(colorScheme == .dark ? Color(hex: "121212") : Color(hex: "F4F4F4"))
+
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showImagePicker) {
                 ImagePicker(image: $selectedImage)
