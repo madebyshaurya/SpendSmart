@@ -541,12 +541,9 @@ struct ExpenseCategoryListView: View {
 
             Spacer()
 
-            Text("$\(Int(item.total))")
+            Text(String(format: "$%.2f", item.total))
                 .font(.spaceGrotesk(size: 18, weight: .bold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
-
-            Image(systemName: "chevron.right")
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
         }
         .padding()
         .background(

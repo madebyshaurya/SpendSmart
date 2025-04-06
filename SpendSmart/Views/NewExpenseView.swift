@@ -10,6 +10,7 @@ import PhotosUI
 import AVFoundation
 import Vision
 import GoogleGenerativeAI
+import Supabase
 
 struct NewExpenseView: View {
     var onReceiptAdded: (Receipt) -> Void
@@ -228,7 +229,7 @@ struct NewExpenseView: View {
                                 }
                                 
                                 // Simulate extraction time (in real implementation, this will be the actual processing time)
-                                try await Task.sleep(nanoseconds: 1_500_000_000)
+                                try await Task.sleep(nanoseconds: 200_000_000)
                                 
                                 withAnimation {
                                     progressStep = .analyzingReceipt
@@ -236,11 +237,14 @@ struct NewExpenseView: View {
                                 
                                 // Process the receipt
                                 try await Task.sleep(nanoseconds: 500_000_000)
-                                let receipt = await extractDataFromImage(receiptImage: selectedImage!)
+                                var receipt = await extractDataFromImage(receiptImage: selectedImage!)
                                 
                                 withAnimation {
                                     progressStep = .savingToDatabase
                                 }
+                                
+                                let imageURL = await uploadImage(selectedImage!)
+                                receipt?.image_url = imageURL
                                 
                                 try await Task.sleep(nanoseconds: 200_000_000)
                                 
@@ -265,7 +269,7 @@ struct NewExpenseView: View {
                                 withAnimation {
                                     progressStep = .error
                                 }
-                                try? await Task.sleep(nanoseconds: 500_000_000)
+                                try? await Task.sleep(nanoseconds: 1_500_000_000)
                                 isAddingExpense = false
                                 progressStep = nil
                             }
@@ -302,6 +306,67 @@ struct NewExpenseView: View {
             }
         }
     }
+    
+    
+    func uploadImage(_ image: UIImage) async -> String {
+        guard let imageData = image.jpegData(compressionQuality: 0.7) else {
+            print("Failed to convert image to data")
+            return "placeholder_url"
+        }
+        
+        let apiKey = imgBBAPIKey // Your imgBB API key
+        let urlString = "https://api.imgbb.com/1/upload"
+        
+        // Create multipart form data
+        let boundary = UUID().uuidString
+        
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        
+        // Add API key
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"key\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(apiKey)\r\n".data(using: .utf8)!)
+        
+        // Add image data
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"image\"; filename=\"receipt.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // Close the boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                print("Error: Invalid HTTP response")
+                return "placeholder_url"
+            }
+            
+            // Parse the response
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let data = json["data"] as? [String: Any],
+               let url = data["url"] as? String {
+                print("Image uploaded successfully: \(url)")
+                return url
+            } else {
+                print("Failed to parse image upload response")
+                return "placeholder_url"
+            }
+        } catch {
+            print("Image upload error: \(error)")
+            return "placeholder_url"
+        }
+    }
+    
     
     func extractDataFromImage(receiptImage: UIImage) async -> Receipt? {
         do {
