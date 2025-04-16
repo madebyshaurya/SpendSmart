@@ -7,6 +7,24 @@
 
 import SwiftUI
 
+struct CreditRow: View {
+    var icon: String
+    var text: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundColor(.primary)
+                .frame(width: 24, height: 24)
+
+            Text(text)
+                .font(.instrumentSans(size: 16))
+                .foregroundColor(.primary)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 struct CreditsView: View {
     @State private var animate = false
 
@@ -21,19 +39,8 @@ struct CreditsView: View {
                     .font(.instrumentSerif(size: 36))
                     .foregroundColor(.primary)
 
-                VStack(alignment: .leading, spacing: 15) {
-                    HStack {
-                        Image(systemName: "square.and.pencil")
-                            .foregroundColor(.primary)
-                        Text("SwiftUI - Building beautiful UIs")
-                            .foregroundColor(.primary)
-                    }
-                    HStack {
-                        Image(systemName: "globe")
-                            .foregroundColor(.primary)
-                        Text("Logos provided by Logo.dev")
-                            .foregroundColor(.primary)
-                    }
+                VStack(alignment: .leading, spacing: 10) {
+                    CreditRow(icon: "globe", text: "Logos provided by Logo.dev")
                 }
                 .padding()
                 .background(Color(.secondarySystemBackground))

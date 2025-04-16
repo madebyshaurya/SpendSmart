@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Supabase
 
 // Logo cache to prevent unnecessary API calls
 class LogoCache: ObservableObject {
@@ -17,57 +18,57 @@ class LogoCache: ObservableObject {
 class LogoService {
     static let shared = LogoService()
     private let publicKey = "pk_EB5BNaRARdeXj64ti60xGQ"
-    
+
     func fetchLogo(for storeName: String) async -> (UIImage?, [Color]) {
         // Check cache first
         if let cached = LogoCache.shared.logoCache[storeName.lowercased()] {
             return (cached.image, cached.colors)
         }
-        
+
         let formattedName = storeName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? storeName
         let urlString = "https://api.logo.dev/search?q=\(formattedName)"
-        
+
         guard let url = URL(string: urlString) else {
             return (nil, [.gray])
         }
-        
+
         var request = URLRequest(url: url)
         request.addValue("Bearer \(secretKey)", forHTTPHeaderField: "Authorization") // Fixed header
-        
+
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             if let jsonString = String(data: data, encoding: .utf8) {
                 print("Raw API Response: \(jsonString)")
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                 print("Error response: \(response)")
                 return (nil, [.gray])
             }
-            
+
             // Decode JSON as an array of dictionaries
             if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
                let firstResult = jsonArray.first,
                let logoUrlString = firstResult["logo_url"] as? String,
                let logoUrl = URL(string: logoUrlString) {
-                
+
                 // Fetch the logo image
                 let (imageData, _) = try await URLSession.shared.data(from: logoUrl)
                 if let image = UIImage(data: imageData) {
                     let colors = image.dominantColors(count: 3)
-                    
+
                     // Cache the result on the main thread
                     await MainActor.run {
                         LogoCache.shared.logoCache[storeName.lowercased()] = (image, colors)
                     }
-                    
+
                     return (image, colors)
                 }
             }
         } catch {
             print("Error fetching logo: \(error)")
         }
-        
+
         return (nil, [.gray])
     }
 }
@@ -79,6 +80,7 @@ struct HistoryView: View {
     @StateObject private var logoCache = LogoCache.shared
     @Environment(\.colorScheme) private var colorScheme
     @State private var deletingReceiptId: String? = nil
+    @EnvironmentObject var appState: AppState
 
     // Search and Filter States
     @State private var searchText: String = ""
@@ -101,15 +103,34 @@ struct HistoryView: View {
     }
 
     func fetchReceipts() async {
+        // Check if we're in guest mode (using local storage)
+        if appState.useLocalStorage {
+            // Get receipts from local storage
+            let localReceipts = LocalStorageService.shared.getReceipts()
+
+            // Pre-fetch logos for receipts
+            for receipt in localReceipts {
+                Task {
+                    _ = await LogoService.shared.fetchLogo(for: receipt.store_name)
+                }
+            }
+
+            withAnimation(.easeInOut(duration: 0.5)) {
+                receipts = localReceipts
+            }
+            return
+        }
+
+        // If not in guest mode, fetch from Supabase
         do {
             let response = try await supabase
                 .from("receipts")
                 .select()
                 .execute()
-            
+
             // Debug: Print fetched JSON data
             print("Fetched Data: \(String(data: response.data, encoding: .utf8) ?? "No Data")")
-            
+
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .custom { decoder in
                 let container = try decoder.singleValueContainer()
@@ -126,17 +147,17 @@ struct HistoryView: View {
                     debugDescription: "Cannot decode date: \(dateString)"
                 )
             }
-            
+
             let fetchedReceipts = try decoder.decode([Receipt].self, from: response.data)
             print("Decoded Receipts: \(fetchedReceipts.count)")
-            
+
             // Optionally pre-fetch logos for receipts here
             for receipt in fetchedReceipts {
                 Task {
                     _ = await LogoService.shared.fetchLogo(for: receipt.store_name)
                 }
             }
-            
+
             withAnimation(.easeInOut(duration: 0.5)) {
                 receipts = fetchedReceipts
             }
@@ -144,12 +165,17 @@ struct HistoryView: View {
             print("Error fetching receipts: \(error.localizedDescription)")
         }
     }
-    
+
     // Handle receipt deletion
     func handleDeleteReceipt(_ receipt: Receipt) {
         withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
             // Remove the receipt from our local array
             receipts.removeAll { $0.id == receipt.id }
+
+            // If in guest mode, also delete from local storage
+            if appState.useLocalStorage {
+                LocalStorageService.shared.deleteReceipt(withId: receipt.id)
+            }
         }
     }
 
@@ -397,7 +423,7 @@ struct EnhancedReceiptCard: View {
     @State private var isDeleting = false
     // Callback for when deletion is complete
     var onDelete: ((Receipt) -> Void)?
-    
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             // Card background
@@ -418,7 +444,7 @@ struct EnhancedReceiptCard: View {
                         )
                 )
                 .shadow(color: shadowColor, radius: isHovered ? 12 : 6, x: 0, y: isHovered ? 5 : 3)
-            
+
             // Content
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
@@ -440,52 +466,61 @@ struct EnhancedReceiptCard: View {
                                 RoundedRectangle(cornerRadius: 8)
                                     .fill(primaryLogoColor.opacity(0.2))
                                     .frame(width: 40, height: 40)
-                                
+
                                 Text(String(receipt.store_name.prefix(1)).uppercased())
                                     .font(.spaceGrotesk(size: 20, weight: .bold))
                                     .foregroundColor(primaryLogoColor)
                             }
                         }
-                        
+
                         VStack(alignment: .leading, spacing: 2) {
                             Text(receipt.store_name.capitalized)
                                 .font(.instrumentSans(size: 18, weight: .semibold))
                                 .lineLimit(1)
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
-                            
+
                             Text(receipt.receipt_name)
                                 .font(.instrumentSans(size: 14))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                         }
                     }
-                    
+
                     Spacer()
-                    
+
                     // Price tag
                     ZStack {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(primaryLogoColor.opacity(colorScheme == .dark ? 0.25 : 0.15))
                             .frame(height: 32)
-                        
-                        Text("$\(receipt.total_amount, specifier: "%.2f")")
-                            .font(.spaceGrotesk(size: 20, weight: .bold))
-                            .foregroundColor(primaryLogoColor)
-                            .padding(.horizontal, 12)
+
+                        // Show total amount with savings indicator if there are savings
+                        HStack(spacing: 4) {
+                            Text("$\(receipt.total_amount, specifier: "%.2f")")
+                                .font(.spaceGrotesk(size: 20, weight: .bold))
+                                .foregroundColor(receipt.savings > 0 ? .green : primaryLogoColor)
+
+                            if receipt.savings > 0 {
+                                Image(systemName: "tag.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.green)
+                            }
+                        }
+                        .padding(.horizontal, 12)
                     }
                 }
-                
+
                 HStack(spacing: 6) {
                     Image(systemName: "calendar")
                         .font(.system(size: 12))
                         .foregroundColor(secondaryLogoColor.opacity(0.8))
-                    
+
                     Text(formatDate(receipt.purchase_date))
                         .font(.instrumentSans(size: 12))
                         .foregroundColor(.secondary)
-                    
+
                     Spacer()
-                    
+
                     // Delete button
                     Button(action: {
                         showDeleteConfirmation = true
@@ -500,7 +535,7 @@ struct EnhancedReceiptCard: View {
                     .animation(.easeInOut(duration: 0.2), value: isHovered)
                 }
                 .padding(.top, 2)
-                
+
                 Rectangle()
                     .fill(LinearGradient(
                         colors: [primaryLogoColor.opacity(0.3), primaryLogoColor.opacity(0.1)],
@@ -509,7 +544,7 @@ struct EnhancedReceiptCard: View {
                     ))
                     .frame(height: 1)
                     .padding(.vertical, 6)
-                
+
                 if !receipt.items.isEmpty {
                     VStack(spacing: 8) {
                         HStack {
@@ -517,29 +552,55 @@ struct EnhancedReceiptCard: View {
                                 .font(.instrumentSans(size: 11, weight: .semibold))
                                 .foregroundColor(secondaryLogoColor)
                                 .tracking(1)
-                            
+
                             Spacer()
-                            
+
                             Text("\(receipt.items.count) item\(receipt.items.count == 1 ? "" : "s")")
                                 .font(.instrumentSans(size: 11))
                                 .foregroundColor(.secondary.opacity(0.8))
                         }
-                        
+
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(Array(receipt.items.prefix(3).enumerated()), id: \.element.id) { index, item in
                                     HStack(spacing: 6) {
-                                        Circle()
-                                            .fill(logoColors[index % max(1, logoColors.count)])
-                                            .frame(width: 8, height: 8)
-                                        
-                                        Text(item.name)
-                                            .font(.instrumentSans(size: 13))
-                                            .foregroundColor(.primary.opacity(0.8))
-                                        
-                                        Text("$\(item.price, specifier: "%.2f")")
-                                            .font(.instrumentSans(size: 13, weight: .medium))
-                                            .foregroundColor(logoColors[index % max(1, logoColors.count)])
+                                        // Icon for item type
+                                        if item.isDiscount {
+                                            Image(systemName: "tag.fill")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.green)
+                                        } else {
+                                            Circle()
+                                                .fill(logoColors[index % max(1, logoColors.count)])
+                                                .frame(width: 8, height: 8)
+                                        }
+
+                                        // Item name with possible discount description
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            Text(item.name)
+                                                .font(.instrumentSans(size: 13))
+                                                .foregroundColor(.primary.opacity(0.8))
+
+                                            if let discountDescription = item.discountDescription {
+                                                Text(discountDescription)
+                                                    .font(.instrumentSans(size: 10))
+                                                    .foregroundColor(item.isDiscount ? .green : .secondary)
+                                            }
+                                        }
+
+                                        // Price display
+                                        HStack(spacing: 2) {
+                                            if let originalPrice = item.originalPrice, originalPrice != item.price {
+                                                Text("$\(originalPrice, specifier: "%.2f")")
+                                                    .font(.instrumentSans(size: 10))
+                                                    .foregroundColor(.secondary)
+                                                    .strikethrough(true, color: .secondary)
+                                            }
+
+                                            Text("$\(item.price, specifier: "%.2f")")
+                                                .font(.instrumentSans(size: 13, weight: .medium))
+                                                .foregroundColor(getItemColor(item: item, index: index))
+                                        }
                                     }
                                     .padding(.vertical, 6)
                                     .padding(.horizontal, 10)
@@ -550,7 +611,7 @@ struct EnhancedReceiptCard: View {
                                                   logoColors[index % max(1, logoColors.count)].opacity(0.08))
                                     )
                                 }
-                                
+
                                 if receipt.items.count > 3 {
                                     HStack {
                                         Text("+\(receipt.items.count - 3) more")
@@ -597,15 +658,30 @@ struct EnhancedReceiptCard: View {
             Text("Are you sure you want to delete this receipt from \(receipt.store_name)? This action cannot be undone.")
         }
     }
-    
+
+    @EnvironmentObject var appState: AppState
+
     private func deleteReceipt() {
         withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
             isDeleting = true
         }
-        
-        // Add a slight delay to let the animation play before actually deleting from DB
+
+        // Add a slight delay to let the animation play before actually deleting
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             Task {
+                // Check if we're in guest mode (using local storage)
+                if self.appState.useLocalStorage {
+                    // Delete from local storage
+                    LocalStorageService.shared.deleteReceipt(withId: receipt.id)
+
+                    // Call the onDelete callback to update the UI
+                    await MainActor.run {
+                        onDelete?(receipt)
+                    }
+                    return
+                }
+
+                // If not in guest mode, delete from Supabase
                 do {
                     // Delete from Supabase
                     let response = try await supabase
@@ -613,7 +689,7 @@ struct EnhancedReceiptCard: View {
                         .delete()
                         .eq("id", value: receipt.id)
                         .execute()
-                    
+
                     // Check if delete was successful
                     if response.status == 200 || response.status == 204 {
                         print("Receipt deleted successfully: \(receipt.id)")
@@ -642,15 +718,15 @@ struct EnhancedReceiptCard: View {
             }
         }
     }
-    
+
     private var primaryLogoColor: Color {
         logoColors.first ?? (colorScheme == .dark ? .white : .black)
     }
-    
+
     private var secondaryLogoColor: Color {
         logoColors.count > 1 ? logoColors[1] : primaryLogoColor.opacity(0.7)
     }
-    
+
     private var backgroundGradient: some ShapeStyle {
         if colorScheme == .dark {
             return LinearGradient(
@@ -672,13 +748,25 @@ struct EnhancedReceiptCard: View {
             )
         }
     }
-    
+
     private var shadowColor: Color {
         colorScheme == .dark
         ? primaryLogoColor.opacity(0.3)
         : primaryLogoColor.opacity(0.2)
     }
-    
+
+    private func getItemColor(item: ReceiptItem, index: Int) -> Color {
+        if item.isDiscount {
+            return .green
+        } else if item.price == 0 {
+            return .green // Free items
+        } else if let originalPrice = item.originalPrice, originalPrice > item.price {
+            return .orange // Discounted items
+        } else {
+            return logoColors[index % max(1, logoColors.count)]
+        }
+    }
+
     private func loadLogo() {
         Task {
             let (image, colors) = await LogoService.shared.fetchLogo(for: receipt.store_name)
@@ -688,7 +776,7 @@ struct EnhancedReceiptCard: View {
             }
         }
     }
-    
+
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -702,18 +790,18 @@ struct IconDetailView: View {
     let title: String
     let detail: String
     let color: Color
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
                     .foregroundColor(color)
-                
+
                 Text(title)
                     .font(.instrumentSans(size: 12))
                     .foregroundColor(.secondary)
             }
-            
+
             Text(detail)
                 .font(.instrumentSans(size: 14, weight: .semibold))
                 .lineLimit(1)
@@ -728,40 +816,63 @@ struct ItemCard: View {
     let index: Int
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
-    
+
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(backgroundColor)
-                    .frame(width: 40, height: 40)
-                
-                if let iconName = categoryIcon(for: item.category) {
-                    Image(systemName: iconName)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(getLogoColor(at: index % logoColors.count))
-                } else {
-                    Text(String(item.category.prefix(1)).uppercased())
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(backgroundColor)
+                        .frame(width: 40, height: 40)
+
+                    if item.isDiscount {
+                        // Special icon for discounts
+                        Image(systemName: "tag.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color.green)
+                    } else if let iconName = categoryIcon(for: item.category) {
+                        Image(systemName: iconName)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(getLogoColor(at: index % logoColors.count))
+                    } else {
+                        Text(String(item.category.prefix(1)).uppercased())
+                            .font(.spaceGrotesk(size: 18, weight: .bold))
+                            .foregroundColor(getLogoColor(at: index % logoColors.count))
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.name)
+                        .font(.instrumentSans(size: 16, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                    if let discountDescription = item.discountDescription {
+                        Text(discountDescription)
+                            .font(.instrumentSans(size: 14, weight: .medium))
+                            .foregroundColor(item.isDiscount ? .green : .secondary)
+                    } else {
+                        Text(item.category)
+                            .font(.instrumentSans(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                // Price display with original price if available
+                VStack(alignment: .trailing, spacing: 2) {
+                    if let originalPrice = item.originalPrice, originalPrice != item.price {
+                        Text("$\(originalPrice, specifier: "%.2f")")
+                            .font(.spaceGrotesk(size: 14))
+                            .foregroundColor(.secondary)
+                            .strikethrough(true, color: .secondary)
+                    }
+
+                    Text("$\(item.price, specifier: "%.2f")")
                         .font(.spaceGrotesk(size: 18, weight: .bold))
-                        .foregroundColor(getLogoColor(at: index % logoColors.count))
+                        .foregroundColor(priceColor)
                 }
             }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.name)
-                    .font(.instrumentSans(size: 16, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                
-                Text(item.category)
-                    .font(.instrumentSans(size: 14))
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            Text("$\(item.price, specifier: "%.2f")")
-                .font(.spaceGrotesk(size: 18, weight: .bold))
-                .foregroundColor(getLogoColor(at: index % logoColors.count))
         }
         .padding(16)
         .background(
@@ -780,20 +891,32 @@ struct ItemCard: View {
             isHovered = hovering
         }
     }
-    
+
     private var backgroundColor: Color {
         colorScheme == .dark
         ? getLogoColor(at: index % logoColors.count).opacity(0.15)
         : getLogoColor(at: index % logoColors.count).opacity(0.1)
     }
-    
+
     private func getLogoColor(at index: Int) -> Color {
         guard index < logoColors.count, !logoColors.isEmpty else {
             return colorScheme == .dark ? .white : .black
         }
         return logoColors[index]
     }
-    
+
+    private var priceColor: Color {
+        if item.isDiscount {
+            return .green
+        } else if item.price == 0 {
+            return .green // Free items
+        } else if let originalPrice = item.originalPrice, originalPrice > item.price {
+            return .orange // Discounted items
+        } else {
+            return getLogoColor(at: index % logoColors.count)
+        }
+    }
+
     private func categoryIcon(for category: String) -> String? {
         let normalized = category.lowercased()
         if normalized.contains("food") || normalized.contains("grocery") {

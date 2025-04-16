@@ -64,3 +64,5 @@ fastlane/screenshots/**/*.png
 fastlane/test_output
 
 SpendSmart/APIKeys.swift
+SpendSmart/APIKeys.swift
+SpendSmart/APIKeys.swift

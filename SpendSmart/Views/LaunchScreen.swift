@@ -13,7 +13,7 @@ struct LaunchScreen: View {
     @ObservedObject var appState: AppState
     @State private var currentPage = 0
     @Environment(\.colorScheme) private var colorScheme
-    
+
     // Onboarding feature pages
     private let features = [
         FeatureItem(
@@ -37,22 +37,25 @@ struct LaunchScreen: View {
             description: "Find receipts quickly when you need to return items or file warranty claims."
         )
     ]
-    
+
     // Add timer for auto-scrolling
     @State private var autoScrollTimer: Timer?
-    
+
     // Add gradient animation state
     @State private var gradientStart = UnitPoint(x: -1, y: 0.5)
     @State private var gradientEnd = UnitPoint(x: 0, y: 0.5)
-    
+
     // Add button animation state
     @State private var isButtonHovered = false
-    
+
+    // Alert state
+    @State private var showGuestModeAlert = false
+
     var body: some View {
         ZStack {
             backgroundColor
                 .ignoresSafeArea(.all)
-            
+
             VStack(spacing: 0) {
                 // Header
                 VStack(spacing: 8) {
@@ -64,7 +67,7 @@ struct LaunchScreen: View {
                         .font(.instrumentSans(size: 16))
                         .foregroundColor(colorScheme == .dark ? .gray : Color(hex: "64748B"))
                         .padding(.bottom, 20)
-                    
+
                     // AI Pill Badge
                     Text("AI-POWERED • 100% FREE")
                         .font(.instrumentSans(size: 12))
@@ -105,7 +108,7 @@ struct LaunchScreen: View {
                         }
                 }
                 .padding(.top, 80)
-                
+
                 // Feature carousel
                 TabView(selection: $currentPage) {
                     ForEach(0..<features.count, id: \.self) { index in
@@ -117,7 +120,7 @@ struct LaunchScreen: View {
                 .frame(height: 400)
                 .padding(.top, 24)
                 .animation(.easeInOut(duration: 0.3), value: currentPage)
-                
+
                 // Page indicator
                 HStack(spacing: 12) {
                     ForEach(0..<features.count, id: \.self) { index in
@@ -130,11 +133,11 @@ struct LaunchScreen: View {
                     }
                 }
                 .padding(.top, 20)
-                
+
                 Spacer()
-                
+
                 // Sign in button - at bottom
-                VStack(spacing: 20) {
+                VStack(spacing: 16) {
                     CustomSignInWithAppleButton { result in
                         switch result {
                         case .success(let authResults):
@@ -144,10 +147,35 @@ struct LaunchScreen: View {
                         }
                     }
                     .shadow(color: colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.05), radius: 10, x: 0, y: 4)
-                    
+
+                    // Continue as guest button
+                    Button {
+                        showGuestModeAlert = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.crop.circle")
+                                .font(.system(size: 16))
+
+                            Text("Continue as guest")
+                                .font(.instrumentSans(size: 16, weight: .medium))
+                        }
+                        .foregroundColor(colorScheme == .dark ? .white : Color(hex: "3B82F6"))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(
+                                    colorScheme == .dark ? Color.white.opacity(0.2) : Color(hex: "3B82F6").opacity(0.5),
+                                    lineWidth: 1.5
+                                )
+                        )
+                    }
+                    .padding(.top, 8)
+
                     Text("No in-app purchases or ads. We respect your privacy.")
                         .font(.instrumentSans(size: 12))
                         .foregroundColor(colorScheme == .dark ? .gray : Color(hex: "64748B"))
+                        .padding(.top, 8)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 40)
@@ -161,14 +189,22 @@ struct LaunchScreen: View {
         .onDisappear {
             stopAutoScroll()
         }
+        .alert("Continue as Guest", isPresented: $showGuestModeAlert) {
+            Button("Continue", role: .none) {
+                enableGuestMode()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your receipts will be saved on this device only. To save receipts in the cloud, please sign in with Apple.")
+        }
     }
-    
+
     private var backgroundColor: some View {
         colorScheme == .dark ?
         Color(hex: "0A0A0A").edgesIgnoringSafeArea(.all) :
         Color(hex: "F8FAFC").edgesIgnoringSafeArea(.all)
     }
-    
+
     private func checkForExistingSession() {
         // Check if there's an active session
         if let user = supabase.auth.currentUser {
@@ -178,7 +214,7 @@ struct LaunchScreen: View {
             }
         }
     }
-    
+
     private func handleSignInWithApple(_ authResults: ASAuthorization) {
         guard let credential = authResults.credential as? ASAuthorizationAppleIDCredential,
               let identityToken = credential.identityToken,
@@ -186,29 +222,29 @@ struct LaunchScreen: View {
             print("Error: Invalid Apple ID credentials")
             return
         }
-        
+
         Task {
             do {
                 let session = try await supabase.auth.signInWithIdToken(credentials: .init(provider: .apple, idToken: tokenString))
-                
+
                 print(session.user.id)
 //                self.userId = session.user.id
-                
+
                 if let user = supabase.auth.currentUser {
                     DispatchQueue.main.async {
                         appState.userEmail = user.email ?? "No Email"
                         appState.isLoggedIn = true
                     }
                 }
-                
+
                 print("✅ Successfully signed in with Apple via Supabase!")
-                
+
             } catch {
                 print("❌ Supabase authentication failed: \(error.localizedDescription)")
             }
         }
     }
-    
+
     // Add auto-scroll functions
     private func startAutoScroll() {
         autoScrollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
@@ -217,9 +253,45 @@ struct LaunchScreen: View {
             }
         }
     }
-    
+
     private func stopAutoScroll() {
         autoScrollTimer?.invalidate()
         autoScrollTimer = nil
+    }
+
+    // Enable guest mode
+    private func enableGuestMode() {
+        // Create a guest user in Supabase with anonymous sign-in
+        Task {
+            do {
+                // Try to use a standard email/password approach since anonymous auth might not be enabled
+                let randomNum = Int.random(in: 10000...99999)
+                let guestEmail = "guest\(randomNum)@spend-smart.co"
+                let guestPassword = "Guest123!_\(randomNum)"
+
+                // Create a session with email/password
+                let session = try await supabase.auth.signUp(
+                    email: guestEmail,
+                    password: guestPassword,
+                    data: ["is_guest": true] // Add metadata to mark as guest user
+                )
+
+                print("✅ Created guest user with ID: \(session.user.id)")
+
+                // Enable guest mode in app state with the user ID
+                DispatchQueue.main.async {
+                    appState.enableGuestMode(userId: session.user.id)
+                }
+
+            } catch {
+                print("❌ Failed to create guest user: \(error.localizedDescription)")
+
+                // Try a different approach - create a local-only guest mode
+                print("Falling back to local-only guest mode")
+                DispatchQueue.main.async {
+                    appState.enableGuestMode()
+                }
+            }
+        }
     }
 }

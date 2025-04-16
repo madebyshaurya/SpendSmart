@@ -9,6 +9,11 @@
 /* Begin PBXBuildFile section */
 		5060B9062D827079000CCB51 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 5060B9052D827079000CCB51 /* Supabase */; };
 		50A4FA3C2D909F7200C89441 /* GoogleGenerativeAI in Frameworks */ = {isa = PBXBuildFile; productRef = 50A4FA3B2D909F7200C89441 /* GoogleGenerativeAI */; };
+		50B538DF2DAC2DBC00A2999A /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538DE2DAC2DBC00A2999A /* Auth */; };
+		50B538E12DAC2DBC00A2999A /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E02DAC2DBC00A2999A /* Functions */; };
+		50B538E32DAC2DBC00A2999A /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E22DAC2DBC00A2999A /* PostgREST */; };
+		50B538E52DAC2DBC00A2999A /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E42DAC2DBC00A2999A /* Realtime */; };
+		50B538E72DAC2DBC00A2999A /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E62DAC2DBC00A2999A /* Storage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +48,11 @@
 			files = (
 				5060B9062D827079000CCB51 /* Supabase in Frameworks */,
 				50A4FA3C2D909F7200C89441 /* GoogleGenerativeAI in Frameworks */,
+				50B538E72DAC2DBC00A2999A /* Storage in Frameworks */,
+				50B538E12DAC2DBC00A2999A /* Functions in Frameworks */,
+				50B538E52DAC2DBC00A2999A /* Realtime in Frameworks */,
+				50B538DF2DAC2DBC00A2999A /* Auth in Frameworks */,
+				50B538E32DAC2DBC00A2999A /* PostgREST in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -87,6 +97,11 @@
 			packageProductDependencies = (
 				5060B9052D827079000CCB51 /* Supabase */,
 				50A4FA3B2D909F7200C89441 /* GoogleGenerativeAI */,
+				50B538DE2DAC2DBC00A2999A /* Auth */,
+				50B538E02DAC2DBC00A2999A /* Functions */,
+				50B538E22DAC2DBC00A2999A /* PostgREST */,
+				50B538E42DAC2DBC00A2999A /* Realtime */,
+				50B538E62DAC2DBC00A2999A /* Storage */,
 			);
 			productName = SpendSmart;
 			productReference = 507C569A2D8254DC00CA1FD5 /* SpendSmart.app */;
@@ -100,7 +115,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1620;
-				LastUpgradeCheck = 1620;
+				LastUpgradeCheck = 1630;
 				TargetAttributes = {
 					507C56992D8254DC00CA1FD5 = {
 						CreatedOnToolsVersion = 16.2;
@@ -186,6 +201,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = P6PV2R9443;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -249,6 +265,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = P6PV2R9443;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -279,7 +296,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"SpendSmart/Preview Content\"";
-				DEVELOPMENT_TEAM = M542AQBJC5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SpendSmart/Info.plist;
@@ -294,7 +310,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.SpendSmartApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -311,7 +327,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"SpendSmart/Preview Content\"";
-				DEVELOPMENT_TEAM = M542AQBJC5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SpendSmart/Info.plist;
@@ -326,7 +341,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.SpendSmartApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -386,6 +401,31 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 50A4FA3A2D909F7200C89441 /* XCRemoteSwiftPackageReference "generative-ai-swift" */;
 			productName = GoogleGenerativeAI;
+		};
+		50B538DE2DAC2DBC00A2999A /* Auth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Auth;
+		};
+		50B538E02DAC2DBC00A2999A /* Functions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Functions;
+		};
+		50B538E22DAC2DBC00A2999A /* PostgREST */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = PostgREST;
+		};
+		50B538E42DAC2DBC00A2999A /* Realtime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Realtime;
+		};
+		50B538E62DAC2DBC00A2999A /* Storage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Storage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -18,10 +18,16 @@ struct NewExpenseView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var showImagePicker = false
     @State private var showCamera = false
+    @State private var showMultiCamera = false
     @State private var selectedImage: UIImage?
+    @State private var capturedImages: [UIImage] = []
     @State private var isAddingExpense = false // For loading indicator
     @State private var progressStep: ProcessingStep?
     @State private var rotationDegrees: Double = 0
+    @State private var showImageCarousel = false
+    @State private var currentImageIndex = 0
+    @State private var showFirstTimeGuide = false
+    @EnvironmentObject var appState: AppState
 
     enum ProcessingStep: String, CaseIterable {
         case extractingText = "Extracting Text"
@@ -29,7 +35,7 @@ struct NewExpenseView: View {
         case savingToDatabase = "Saving to Database"
         case complete = "Complete!"
         case error = "Error Processing Receipt"
-        
+
         var systemImage: String {
             switch self {
             case .extractingText:
@@ -44,7 +50,7 @@ struct NewExpenseView: View {
                 return "exclamationmark.triangle"
             }
         }
-        
+
         var description: String {
             switch self {
             case .extractingText:
@@ -59,7 +65,7 @@ struct NewExpenseView: View {
                 return "Sorry, couldn't process this receipt"
             }
         }
-        
+
         var color: Color {
             switch self {
             case .extractingText:
@@ -75,33 +81,73 @@ struct NewExpenseView: View {
             }
         }
     }
-    
-    
+
+
     var body: some View {
         NavigationView {
             VStack {
-                if let image = selectedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .cornerRadius(12)
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(colorScheme == .dark ? Color(hex: "282828") : Color(hex: "F0F0F0"))
-                                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-                        )
-                        .padding()
+                if !capturedImages.isEmpty || selectedImage != nil {
+                    // Image carousel or single image display
+                    ZStack {
+                        if !capturedImages.isEmpty {
+                            // Multi-image carousel
+                            TabView(selection: $currentImageIndex) {
+                                ForEach(0..<capturedImages.count, id: \.self) { index in
+                                    Image(uiImage: capturedImages[index])
+                                        .resizable()
+                                        .scaledToFit()
+                                        .cornerRadius(12)
+                                        .padding()
+                                        .tag(index)
+                                }
+                            }
+                            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .automatic))
+                            .frame(height: 300)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(colorScheme == .dark ? Color(hex: "282828") : Color(hex: "F0F0F0"))
+                                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                            )
+                            .overlay(
+                                // Image counter pill
+                                Text("\(currentImageIndex + 1)/\(capturedImages.count)")
+                                    .font(.instrumentSans(size: 14, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.black.opacity(0.6))
+                                    )
+                                    .padding(8),
+                                alignment: .topTrailing
+                            )
+                        } else if let image = selectedImage {
+                            // Single image display
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .cornerRadius(12)
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(colorScheme == .dark ? Color(hex: "282828") : Color(hex: "F0F0F0"))
+                                        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                                )
+                        }
+                    }
+                    .padding()
+                    .transition(.opacity)
                 } else {
                     VStack(spacing: 16) {
                         Image(systemName: "receipt")
                             .font(.system(size: 64))
                             .foregroundColor(colorScheme == .dark ? Color(hex: "DDDDDD") : Color(hex: "555555"))
-                        
+
                         Text("Select a Receipt Image")
                             .font(.instrumentSans(size: 28, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
-                        
+
                         Text("Take a photo of your receipt or select one from your gallery")
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(colorScheme == .dark ? Color(hex: "AAAAAA") : Color(hex: "666666"))
@@ -109,9 +155,9 @@ struct NewExpenseView: View {
                             .padding(.horizontal)
                     }
                     .padding(.vertical, 40)
-                    .transition(.opacity) // Add transition
+                    .transition(.opacity)
                 }
-                
+
                 if isAddingExpense, let step = progressStep {
                     ZStack {
                         VStack(spacing: 25) {
@@ -122,7 +168,7 @@ struct NewExpenseView: View {
                                     .stroke(lineWidth: 15)
                                     .opacity(0.1)
                                     .foregroundColor(step.color)
-                                
+
                                 // Progress Circle
                                 Circle()
                                     .trim(from: 0.0, to: min(CGFloat(ProcessingStep.allCases.firstIndex(of: step)! + 1) / CGFloat(ProcessingStep.allCases.count - 1), 1.0))
@@ -130,7 +176,7 @@ struct NewExpenseView: View {
                                     .foregroundColor(step.color)
                                     .rotationEffect(Angle(degrees: 270.0))
                                     .animation(.easeInOut(duration: 0.6), value: step)
-                                
+
                                 // Rotating Trim
                                 Circle()
                                     .trim(from: 0.0, to: 0.2)
@@ -142,7 +188,7 @@ struct NewExpenseView: View {
                                             rotationDegrees = 360
                                         }
                                     }
-                                
+
                                 // Icon
                                 Image(systemName: step.systemImage)
                                     .font(.system(size: 40))
@@ -151,13 +197,13 @@ struct NewExpenseView: View {
                                     .id(step) // Force view recreation for transition
                             }
                             .frame(width: 180, height: 180)
-                            
+
                             // Status Text
                             VStack(spacing: 10) {
                                 Text(step.rawValue)
                                     .font(.instrumentSans(size: 24, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
-                                
+
                                 Text(step.description)
                                     .font(.instrumentSans(size: 16))
                                     .foregroundColor(colorScheme == .dark ? Color(hex: "BBBBBB") : Color(hex: "555555"))
@@ -173,52 +219,80 @@ struct NewExpenseView: View {
                     }
                     .transition(.opacity)
                 }
-                
+
                 Spacer()
-                
+
                 if !isAddingExpense {
-                    
-                    HStack(spacing: 20) {
-                    Button {
-                        showCamera = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 18))
-                            Text("Camera")
-                                .font(.instrumentSans(size: 18, weight: .medium))
+
+                    VStack(spacing: 16) {
+                        // Capture options
+                        HStack(spacing: 20) {
+                            // Camera button (always multi-image)
+                            Button {
+                                showMultiCamera = true
+                                // Show first-time guide if it's the first time
+                                if !UserDefaults.standard.bool(forKey: "hasSeenMultiImageGuide") {
+                                    showFirstTimeGuide = true
+                                    UserDefaults.standard.set(true, forKey: "hasSeenMultiImageGuide")
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "camera.viewfinder")
+                                        .font(.system(size: 18))
+                                    Text("Camera")
+                                        .font(.instrumentSans(size: 18, weight: .medium))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [Color(hex: "3B82F6"), Color(hex: "1D4ED8")]),
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                )
+                                .foregroundColor(.white)
+                            }
+
+                            // Gallery button
+                            Button {
+                                showImagePicker = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "photo.on.rectangle")
+                                        .font(.system(size: 18))
+                                    Text("Gallery")
+                                        .font(.instrumentSans(size: 18, weight: .medium))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.green.gradient)
+                                )
+                                .foregroundColor(.white)
+                            }
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.blue.gradient)
-                        )
-                        .foregroundColor(.white)
-                    }
-                    
-                    Button {
-                        showImagePicker = true
-                    } label: {
+
+                        // Multi-image info text
                         HStack {
-                            Image(systemName: "photo.on.rectangle")
-                                .font(.system(size: 18))
-                            Text("Gallery")
-                                .font(.instrumentSans(size: 18, weight: .medium))
+                            Image(systemName: "info.circle.fill")
+                                .foregroundColor(.blue)
+                                .font(.system(size: 14))
+                            Text("Take multiple photos for long receipts")
+                                .font(.instrumentSans(size: 14))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.green.gradient)
-                        )
-                        .foregroundColor(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.top, 4)
                     }
-                }
                     .padding(.horizontal)
                     .padding(.bottom, 10)
-                
-                if selectedImage != nil {
+
+                if !capturedImages.isEmpty || selectedImage != nil {
                     Button {
                         isAddingExpense = true
                         Task {
@@ -227,33 +301,64 @@ struct NewExpenseView: View {
                                 withAnimation {
                                     progressStep = .extractingText
                                 }
-                                
+
                                 // Simulate extraction time (in real implementation, this will be the actual processing time)
                                 try await Task.sleep(nanoseconds: 200_000_000)
-                                
+
                                 withAnimation {
                                     progressStep = .analyzingReceipt
                                 }
-                                
+
                                 // Process the receipt
                                 try await Task.sleep(nanoseconds: 500_000_000)
-                                var receipt = await extractDataFromImage(receiptImage: selectedImage!)
-                                
-                                withAnimation {
-                                    progressStep = .savingToDatabase
+
+                                var receipt: Receipt?
+                                var imageURLs: [String] = []
+
+                                if !capturedImages.isEmpty {
+                                    // Process multiple images
+                                    // For now, we'll use the first image for text extraction
+                                    receipt = await extractDataFromImage(receiptImage: capturedImages[0])
+
+                                    withAnimation {
+                                        progressStep = .savingToDatabase
+                                    }
+
+                                    // Upload all images
+                                    for (_, image) in capturedImages.enumerated() {
+                                        let imageURL = await uploadImage(image)
+                                        if imageURL != "placeholder_url" {
+                                            imageURLs.append(imageURL)
+                                        }
+
+                                        // Update progress for each image
+                                        withAnimation {
+                                            rotationDegrees += 30
+                                        }
+                                    }
+
+                                    // Set all image URLs
+                                    receipt?.image_urls = imageURLs
+                                } else if let selectedImage = selectedImage {
+                                    // Process single image
+                                    receipt = await extractDataFromImage(receiptImage: selectedImage)
+
+                                    withAnimation {
+                                        progressStep = .savingToDatabase
+                                    }
+
+                                    let imageURL = await uploadImage(selectedImage)
+                                    receipt?.image_urls = [imageURL]
                                 }
-                                
-                                let imageURL = await uploadImage(selectedImage!)
-                                receipt?.image_url = imageURL
-                                
+
                                 try await Task.sleep(nanoseconds: 200_000_000)
-                                
+
                                 withAnimation {
                                     progressStep = .complete
                                 }
-                                
+
                                 try await Task.sleep(nanoseconds: 400_000_000)
-                                
+
                                 if let receipt = receipt {
                                     onReceiptAdded(receipt)
                                     dismiss()
@@ -276,16 +381,25 @@ struct NewExpenseView: View {
                         }
                     } label: {
                         HStack {
-                            Image(systemName: "plus.circle")
+                            Image(systemName: !capturedImages.isEmpty ? "doc.viewfinder" : "plus.circle")
                                 .font(.system(size: 18))
-                            Text("Add Expense")
+                            Text(!capturedImages.isEmpty ? "Process Multi-Image Receipt" : "Add Expense")
                                 .font(.instrumentSans(size: 18, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(
                             RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.orange.gradient)
+                                .fill(!capturedImages.isEmpty ?
+                                      LinearGradient(
+                                        gradient: Gradient(colors: [Color(hex: "8B5CF6"), Color(hex: "6D28D9")]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                      ) : LinearGradient(
+                                        gradient: Gradient(colors: [Color.orange, Color.orange.opacity(0.7)]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                      ))
                         )
                         .foregroundColor(.white)
                     }
@@ -299,58 +413,64 @@ struct NewExpenseView: View {
 
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showImagePicker) {
-                ImagePicker(image: $selectedImage)
+                // Always use MultiImagePicker for multiple images
+                MultiImagePicker(images: $capturedImages)
             }
-            .sheet(isPresented: $showCamera) {
-                ImageCaptureView(image: $selectedImage)
+            .sheet(isPresented: $showMultiCamera) {
+                MultiImageCaptureView(capturedImages: $capturedImages)
+            }
+            .alert("Multi-Image Scanning", isPresented: $showFirstTimeGuide) {
+                Button("Got it!", role: .cancel) { }
+            } message: {
+                Text("You can take multiple photos of a long receipt. Just tap the capture button for each section of the receipt, then tap 'Done' when finished.")
             }
         }
     }
-    
-    
+
+
     func uploadImage(_ image: UIImage) async -> String {
         guard let imageData = image.jpegData(compressionQuality: 0.7) else {
             print("Failed to convert image to data")
             return "placeholder_url"
         }
-        
+
         let apiKey = imgBBAPIKey // Your imgBB API key
         let urlString = "https://api.imgbb.com/1/upload"
-        
+
         // Create multipart form data
         let boundary = UUID().uuidString
-        
+
         var request = URLRequest(url: URL(string: urlString)!)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        
+
         var body = Data()
-        
+
         // Add API key
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"key\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(apiKey)\r\n".data(using: .utf8)!)
-        
+
         // Add image data
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"image\"; filename=\"receipt.jpg\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
         body.append(imageData)
         body.append("\r\n".data(using: .utf8)!)
-        
+
         // Close the boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        
+
         request.httpBody = body
-        
+
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            
+
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                 print("Error: Invalid HTTP response")
                 return "placeholder_url"
             }
-            
+
             // Parse the response
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let data = json["data"] as? [String: Any],
@@ -366,8 +486,8 @@ struct NewExpenseView: View {
             return "placeholder_url"
         }
     }
-    
-    
+
+
     func extractDataFromImage(receiptImage: UIImage) async -> Receipt? {
         do {
             let systemPrompt = """
@@ -376,8 +496,16 @@ struct NewExpenseView: View {
             #### **Extraction Rules:**
             - No missing values – every field must be correctly populated.
             - Ensure calculations are accurate – total_amount = sum(items) + total_tax.
+            - When calculating total_amount, use the actual price paid (after discounts), not the original price.
+            - For items redeemed with points or free items, use price = 0 in the calculation.
             - Detect currency based on store location or tax rate.
             - Extract payment method if present (e.g., "Credit Card", "Cash", "Mobile Payment").
+            - Carefully identify discounts, free items, and special pricing:
+              * For items with discounts, set originalPrice to the pre-discount price
+              * Set discountDescription to explain the discount (e.g., "Points Redeemed", "Loyalty Discount")
+              * For items that represent a discount, set isDiscount to true
+              * For free items (price = 0), include why they're free in discountDescription
+              * For nominal pricing (e.g., $0.01), note this in discountDescription
 
             #### **Item Categorization:**
             Each item must be placed in the most appropriate category:
@@ -391,13 +519,17 @@ struct NewExpenseView: View {
             - Other → Only if no category fits. Avoid overusing this category.
 
             #### **Quality Check Before Output:**
-            Ensure totals are correct – verify sum of items + tax.
-            Use logical tax rates based on region/currency.
-            Extract store name, address, and date accurately.
-            
-            Goal: Fully automate receipt scanning for a seamless user experience.
+            - Ensure totals are correct – verify sum of items + tax.
+            - Use logical tax rates based on region/currency.
+            - Extract store name, address, and date accurately.
+            - IMPORTANT: Filter out any gibberish or unclear items. Only include items that are clearly identifiable from the receipt.
+            - For items with unclear names, try to interpret them based on context or price.
+            - If an item appears to be a discount, points redemption, or free item, mark it correctly with isDiscount=true.
+            - For items that are clearly part of a points redemption system, ensure they are properly marked.
+
+            Goal: Fully automate receipt scanning for a seamless user experience. NEVER return null values - use reasonable defaults instead (0 for numbers, empty strings for text, current date for dates). Be aware that items such as paper cups or ketchup may sometimes be free items and may not have any price beside them - use 0.0 for these prices.
             """
-            
+
             let config = GenerationConfig(
               temperature: 1,
               topP: 0.95,
@@ -412,7 +544,7 @@ struct NewExpenseView: View {
                 generationConfig: config,
                 systemInstruction: systemPrompt
             )
-            
+
             let structuredSchema = """
             {
               "type": "object",
@@ -467,6 +599,15 @@ struct NewExpenseView: View {
                       },
                       "category": {
                         "type": "string"
+                      },
+                      "originalPrice": {
+                        "type": "number"
+                      },
+                      "discountDescription": {
+                        "type": "string"
+                      },
+                      "isDiscount": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -491,11 +632,11 @@ struct NewExpenseView: View {
               ]
             }
             """
-            
+
             let prompt = "Extract all receipt details from this image and return in this format: \(structuredSchema)."
             let response = try await model.generateContent(prompt, receiptImage)
             print(response.text ?? "No response received")
-            
+
             // TODO: Parse response.text JSON into a Receipt object.
             let parsedReceipt = parseReceipt(from: response.text)  // Implement this parsing function
             return parsedReceipt
@@ -518,31 +659,92 @@ struct NewExpenseView: View {
 
             decoder.dateDecodingStrategy = .formatted(dateFormatter)
 
-
             let parsedData = try decoder.decode(TemporaryReceipt.self, from: data)
-            print("Date: \(parsedData.purchase_date)")
-            print("IS08601 Date: \(parsedData.purchase_date.ISO8601Format())")
+
+            // Calculate total amount if missing by summing items
+            let calculatedTotalAmount: Double
+            if let totalAmount = parsedData.total_amount {
+                calculatedTotalAmount = totalAmount
+            } else {
+                // Sum all item prices
+                calculatedTotalAmount = parsedData.items.reduce(0) { total, item in
+                    return total + item.price
+                }
+                print("Calculated total amount: \(calculatedTotalAmount)")
+            }
+
+            // Set default values for missing fields
+            let currentDate = Date()
+            if let purchaseDate = parsedData.purchase_date {
+                print("Date: \(purchaseDate)")
+                print("IS08601 Date: \(purchaseDate.ISO8601Format())")
+            }
+
+            // Filter out gibberish items (single character names or very short names that aren't common abbreviations)
+            let filteredItems = parsedData.items.filter { item in
+                // Keep items that are marked as discounts
+                if item.isDiscount {
+                    return true
+                }
+
+                // Filter out single character items that aren't common abbreviations
+                if item.name.count <= 1 {
+                    return false
+                }
+
+                // Filter out items with names that are just punctuation or special characters
+                let nonPunctuationChars = item.name.filter { !$0.isPunctuation && !$0.isSymbol }
+                if nonPunctuationChars.isEmpty {
+                    return false
+                }
+
+                return true
+            }
+
+            // Recalculate total if needed after filtering
+            let finalTotalAmount: Double
+            if filteredItems.count < parsedData.items.count {
+                // Some items were filtered out, recalculate the total
+                finalTotalAmount = filteredItems.reduce(0) { total, item in
+                    return total + item.price
+                } + (parsedData.total_tax ?? 0.0)
+            } else {
+                finalTotalAmount = calculatedTotalAmount
+            }
+
+            // Determine the user ID based on whether we're in guest mode or not
+            let userId: UUID
+            if appState.isGuestUser {
+                // Use the guest user ID if available, otherwise generate a new one
+                userId = appState.guestUserId ?? UUID()
+            } else {
+                // Use the authenticated user's ID
+                userId = supabase.auth.currentUser?.id ?? UUID()
+            }
 
             let receipt = Receipt(
                 id: UUID(),
-                user_id: supabase.auth.currentUser?.id ?? UUID(),
-                image_url: "placeholder_url",
-                total_amount: parsedData.total_amount,
-                items: parsedData.items.map { item in
+                user_id: userId,
+                image_urls: [],
+                total_amount: finalTotalAmount,
+                items: filteredItems.map { item in
                     ReceiptItem(
                         id: UUID(),
                         name: item.name,
                         price: item.price,
-                        category: item.category
+                        category: item.category,
+                        originalPrice: item.originalPrice,
+                        discountDescription: item.discountDescription,
+                        isDiscount: item.isDiscount
                     )
                 },
-                store_name: parsedData.store_name,
-                store_address: parsedData.store_address,
-                receipt_name: parsedData.receipt_name,
-                purchase_date: parsedData.purchase_date,
-                currency: parsedData.currency,
-                payment_method: parsedData.payment_method,
-                total_tax: parsedData.total_tax
+                store_name: parsedData.store_name ?? "Unknown Store",
+                store_address: parsedData.store_address ?? "",
+                receipt_name: parsedData.receipt_name ?? "Receipt",
+                purchase_date: parsedData.purchase_date ?? currentDate,
+                currency: parsedData.currency ?? "USD",
+                payment_method: parsedData.payment_method ?? "Unknown",
+                total_tax: parsedData.total_tax ?? 0.0
             )
 
             return receipt
@@ -555,21 +757,80 @@ struct NewExpenseView: View {
 
     // Temporary struct to decode the JSON structure before transforming it into a `Receipt` object
     private struct TemporaryReceipt: Codable {
-        var total_amount: Double
-        var total_tax: Double
-        var currency: String
-        var payment_method: String
-        var purchase_date: Date
-        var store_name: String
-        var store_address: String
-        var receipt_name: String
+        var total_amount: Double?
+        var total_tax: Double?
+        var currency: String?
+        var payment_method: String?
+        var purchase_date: Date?
+        var store_name: String?
+        var store_address: String?
+        var receipt_name: String?
         var items: [TemporaryReceiptItem]
+
+        // Add coding keys to handle all fields
+        enum CodingKeys: String, CodingKey {
+            case total_amount, total_tax, currency, payment_method, purchase_date, store_name, store_address, receipt_name, items
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            total_amount = try container.decodeIfPresent(Double.self, forKey: .total_amount)
+            total_tax = try container.decodeIfPresent(Double.self, forKey: .total_tax)
+            currency = try container.decodeIfPresent(String.self, forKey: .currency)
+            payment_method = try container.decodeIfPresent(String.self, forKey: .payment_method)
+            purchase_date = try container.decodeIfPresent(Date.self, forKey: .purchase_date)
+            store_name = try container.decodeIfPresent(String.self, forKey: .store_name)
+            store_address = try container.decodeIfPresent(String.self, forKey: .store_address)
+            receipt_name = try container.decodeIfPresent(String.self, forKey: .receipt_name)
+
+            // Items is required, but we'll provide an empty array if missing
+            items = try container.decodeIfPresent([TemporaryReceiptItem].self, forKey: .items) ?? []
+        }
     }
 
     private struct TemporaryReceiptItem: Codable {
         var name: String
         var price: Double
         var category: String
+        var originalPrice: Double?
+        var discountDescription: String?
+        var isDiscount: Bool
+        var id: String?
+
+        // Add coding keys to make originalPrice, discountDescription, and isDiscount optional in JSON
+        enum CodingKeys: String, CodingKey {
+            case name, price, category, originalPrice, discountDescription, isDiscount, id
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            // Required fields with fallbacks
+            do {
+                name = try container.decode(String.self, forKey: .name)
+            } catch {
+                name = "Unknown Item"
+            }
+
+            do {
+                price = try container.decode(Double.self, forKey: .price)
+            } catch {
+                price = 0.0
+            }
+
+            do {
+                category = try container.decode(String.self, forKey: .category)
+            } catch {
+                category = "Other"
+            }
+
+            // Optional fields with defaults
+            originalPrice = try container.decodeIfPresent(Double.self, forKey: .originalPrice)
+            discountDescription = try container.decodeIfPresent(String.self, forKey: .discountDescription)
+            isDiscount = try container.decodeIfPresent(Bool.self, forKey: .isDiscount) ?? false
+            id = try container.decodeIfPresent(String.self, forKey: .id)
+        }
     }
 
 }

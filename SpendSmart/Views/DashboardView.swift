@@ -21,18 +21,29 @@ struct DashboardView: View {
     @State private var showingEarned = false // false = showing Spent, true = showing Earned
     // MARK: - Fetch Receipts
     func fetchUserReceipts() async {
-        guard let userId = supabase.auth.currentUser?.id else { return }
-        
         isLoading = true  // Start loading
         defer { isLoading = false }  // Ensure loading stops after fetch
-        
+
+        // Check if we're in guest mode (using local storage)
+        if appState.useLocalStorage {
+            // Get receipts from local storage
+            let receipts = LocalStorageService.shared.getReceipts()
+            withAnimation {
+                currentUserReceipts = receipts
+            }
+            return
+        }
+
+        // If not in guest mode, fetch from Supabase
+        guard let userId = supabase.auth.currentUser?.id else { return }
+
         do {
             let response = try await supabase
                 .from("receipts")
                 .select()
                 .eq("user_id", value: userId)
                 .execute()
-            
+
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .custom { decoder in
                 let container = try decoder.singleValueContainer()
@@ -52,7 +63,7 @@ struct DashboardView: View {
                     debugDescription: "Cannot decode date: \(dateString)"
                 )
             }
-            
+
             let receipts = try decoder.decode([Receipt].self, from: response.data)
             withAnimation {
                 currentUserReceipts = receipts
@@ -64,9 +75,18 @@ struct DashboardView: View {
         }
     }
 
-    
+
     // MARK: - Insert Receipt
     func insertReceipt(newReceipt: Receipt) async {
+        // Check if we're in guest mode (using local storage)
+        if appState.useLocalStorage {
+            // Save receipt to local storage
+            LocalStorageService.shared.addReceipt(newReceipt)
+            print("✅ Receipt saved to local storage successfully!")
+            return
+        }
+
+        // If not in guest mode, save to Supabase
         do {
             let encoder = JSONEncoder()
             let dateFormatter = DateFormatter()
@@ -74,52 +94,61 @@ struct DashboardView: View {
             dateFormatter.locale = Locale(identifier: "en_US_POSIX")
             dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
             encoder.dateEncodingStrategy = .formatted(dateFormatter)
-            
+
             try await supabase
                 .from("receipts")
                 .insert(newReceipt)
                 .execute()
-            
+
             print("✅ Receipt inserted successfully!")
         } catch {
             print("❌ Error inserting receipt: \(error.localizedDescription)")
         }
     }
-    
+
     // MARK: - Calculate Costs By Category (Including Tax)
     func calculateCostByCategory(receipts: [Receipt]) -> [(category: String, total: Double)] {
         var categoryTotals: [String: Double] = [:]
-        
+
         for receipt in receipts {
-            // Sum each item's price by category.
+            // Sum each item's price by category, but only if it's not a discount or points redemption
             for item in receipt.items {
+                // Skip items that are discounts or points redemptions
+                if item.isDiscount || (item.price == 0 && item.discountDescription?.lowercased().contains("point") == true) {
+                    continue
+                }
                 categoryTotals[item.category, default: 0] += item.price
             }
             // Add the receipt's tax to the "Tax" category.
             categoryTotals["Tax", default: 0] += receipt.total_tax
         }
-        
+
         return categoryTotals.map { (category: $0.key, total: $0.value) }
     }
-    
+
     // MARK: - Calculate Summary Data
-    func calculateSummary(receipts: [Receipt]) -> (totalExpense: Double, totalTax: Double) {
+    func calculateSummary(receipts: [Receipt]) -> (totalExpense: Double, totalTax: Double, totalSavings: Double) {
         var totalExpense = 0.0
         var totalTax = 0.0
-        
+        var totalSavings = 0.0
+
         for receipt in receipts {
+            // Use total_amount as the actual amount spent (what the customer paid)
             totalExpense += receipt.total_amount
             totalTax += receipt.total_tax
+
+            // Add the savings from this receipt
+            totalSavings += receipt.savings
         }
-        
-        return (totalExpense, totalTax)
+
+        return (totalExpense, totalTax, totalSavings)
     }
-    
+
     // MARK: - Body
     var body: some View {
         ZStack {
             BackgroundGradientView()
-            
+
             ScrollView {
                 VStack(spacing: 20) {
                     // App title at top
@@ -128,7 +157,7 @@ struct DashboardView: View {
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 10)
-                    
+
                     if isLoading {
                         ProgressView("Loading receipts...")
                             .progressViewStyle(CircularProgressViewStyle())
@@ -141,20 +170,35 @@ struct DashboardView: View {
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .padding()
                     } else {
-//                        let summary = calculateSummary(receipts: currentUserReceipts)
+                        let summary = calculateSummary(receipts: currentUserReceipts)
                         let costByCategory = calculateCostByCategory(receipts: currentUserReceipts)
-                        
+
+                        // Summary Card with Savings
+                        SavingsSummaryView(totalExpense: summary.totalExpense, totalTax: summary.totalTax, totalSavings: summary.totalSavings, receiptCount: currentUserReceipts.count)
+                            .padding(.bottom, 5)
+
                         // Monthly Bar Chart
                         MonthlyBarChartView(receipts: currentUserReceipts)
                             .padding(.bottom, 5)
-                        
+
                         // Category List View
                         ExpenseCategoryListView(categoryCosts: costByCategory)
                             .padding(.bottom, 5)
-                        
-                        // Moved Donut Chart to bottom
+
+                        // Insights Section
+                        SpendingInsightsView(receipts: currentUserReceipts)
+                            .padding(.bottom, 5)
+
+                        // Donut Chart
                         VStack(spacing: 16) {
-                            
+                            HStack {
+                                Text("Spending Breakdown")
+                                    .font(.instrumentSans(size: 24, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                Spacer()
+                            }
+                            .padding(.horizontal)
+
                             Chart(costByCategory, id: \.category) { item in
                                 SectorMark(
                                     angle: .value("Total", item.total),
@@ -196,7 +240,7 @@ struct DashboardView: View {
                 await fetchUserReceipts()
                 isRefreshing = false
             }
-            
+
             // New Expense Button with Animation
             VStack {
                 Spacer()
@@ -208,7 +252,7 @@ struct DashboardView: View {
                             .font(.system(size: 20))
                             .foregroundColor(.white)
                             .padding(.leading, 10)
-                        
+
                         Text("New Expense")
                             .font(.instrumentSans(size: 20, weight: .semibold))
                             .foregroundColor(.white)
@@ -233,6 +277,7 @@ struct DashboardView: View {
                         await fetchUserReceipts()
                     }
                 })
+                .environmentObject(appState)
             }
         }
         .animation(.easeInOut, value: currentUserReceipts)
@@ -245,49 +290,102 @@ struct DashboardView: View {
 }
 
 // MARK: - Summary Card View
-struct SummaryCardView: View {
+struct SavingsSummaryView: View {
     var totalExpense: Double
     var totalTax: Double
+    var totalSavings: Double
     var receiptCount: Int
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Home")
-                .font(.instrumentSerif(size: 36))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-
             HStack {
-                SummaryItemView(title: "Total Expenses", amount: totalExpense)
-                Divider()
-                    .frame(height: 50)
-                    .background(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                SummaryItemView(title: "Tax Paid", amount: totalTax)
+                Text("Spending Summary")
+                    .font(.instrumentSans(size: 24, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                Spacer()
+
+                Text(receiptCount == 1 ? "1 receipt" : "\(receiptCount) receipts")
+                    .font(.instrumentSans(size: 14))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.gray.opacity(0.1))
+                    )
             }
 
-            Text(receiptCount == 1 ? "1 receipt" : "\(receiptCount) receipts")
-                .font(.instrumentSans(size: 16, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+            HStack(spacing: 12) {
+                // Actual Expenses
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "dollarsign.circle.fill")
+                            .foregroundColor(.blue)
+                        Text("Actual Spent")
+                            .font(.instrumentSans(size: 14))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+                    }
+
+                    Text("$\(String(format: "%.2f", totalExpense))")
+                        .font(.spaceGrotesk(size: 24, weight: .bold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.blue.opacity(0.15) : Color.blue.opacity(0.1))
+                )
+
+                // Savings
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "tag.fill")
+                            .foregroundColor(.green)
+                        Text("Savings")
+                            .font(.instrumentSans(size: 14))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+                    }
+
+                    Text("$\(String(format: "%.2f", totalSavings))")
+                        .font(.spaceGrotesk(size: 24, weight: .bold))
+                        .foregroundColor(.green)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.green.opacity(0.15) : Color.green.opacity(0.1))
+                )
+            }
+
+            // Tax row
+            HStack {
+                Image(systemName: "building.columns.fill")
+                    .foregroundColor(.orange)
+                Text("Tax Paid")
+                    .font(.instrumentSans(size: 14))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+
+                Spacer()
+
+                Text("$\(String(format: "%.2f", totalTax))")
+                    .font(.spaceGrotesk(size: 18, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.orange.opacity(0.15) : Color.orange.opacity(0.1))
+            )
         }
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(backgroundGradient) // Using the same background style
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    accentColor.opacity(0.7),
-                                    accentColor.opacity(0.3)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
-                .shadow(color: shadowColor, radius: 8, x: 0, y: 4) // Keeping a similar shadow
+                .fill(colorScheme == .dark ? Color.black.opacity(0.5) : Color.white.opacity(0.9))
+                .shadow(color: colorScheme == .dark ? Color.blue.opacity(0.2) : Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
         )
         .padding(.horizontal)
         .transition(.opacity)
@@ -339,7 +437,7 @@ struct SummaryItemView: View {
             Text(title)
                 .font(.instrumentSans(size: 14))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
-            Text("$\(amount, specifier: "%.2f")")
+            Text("$\(String(format: "%.2f", amount))")
                 .font(.spaceGrotesk(size: 20, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         }
@@ -350,15 +448,15 @@ struct SummaryItemView: View {
 struct MonthlyBarChartView: View {
     var receipts: [Receipt]
     @Environment(\.colorScheme) private var colorScheme
-    
+
     // Function to group receipts by month
     func receiptsByMonth() -> [(month: String, total: Double)] {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMM"
-        
+
         var monthlyTotals: [String: Double] = [:]
         let calendar = Calendar.current
-        
+
         // Initialize with last 8 months
         let currentDate = Date()
         for i in 0..<8 {
@@ -367,32 +465,32 @@ struct MonthlyBarChartView: View {
                 monthlyTotals[monthStr] = 0
             }
         }
-        
-        // Sum receipts by month
+
+        // Sum receipts by month using actualAmountSpent
         for receipt in receipts {
             let monthStr = dateFormatter.string(from: receipt.purchase_date)
-            monthlyTotals[monthStr, default: 0] += receipt.total_amount
+            monthlyTotals[monthStr, default: 0] += receipt.actualAmountSpent
         }
-        
+
         // Sort by month (chronologically)
         let sortedMonths = monthlyTotals.keys.sorted { month1, month2 in
             let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
             return months.firstIndex(of: month1)! < months.firstIndex(of: month2)!
         }
-        
+
         return sortedMonths.prefix(8).map { (month: $0, total: monthlyTotals[$0]!) }
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Monthly")
                     .font(.instrumentSans(size: 24))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
-                
+
                 Spacer()
             }
-            
+
             let monthlyData = receiptsByMonth()
             // Make sure we have data before showing the chart
             if !monthlyData.isEmpty {
@@ -474,6 +572,10 @@ struct ExpenseCategoryListView: View {
             return ("book.fill", .teal)
         case "subscriptions", "services":
             return ("person.crop.circle.fill", .indigo)
+        case "dining":
+            return ("fork.knife", .pink)
+        case "other":
+            return ("tag.fill", .gray)
         default:
             return ("tag.fill", .gray)
         }
@@ -562,6 +664,181 @@ struct ExpenseCategoryListView: View {
                     .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
             }
         }
+    }
+}
+
+// MARK: - Spending Insights View
+struct SpendingInsightsView: View {
+    var receipts: [Receipt]
+    @Environment(\.colorScheme) private var colorScheme
+
+    // Calculate insights
+    func calculateInsights() -> [(icon: String, title: String, description: String, color: Color)] {
+        var insights: [(icon: String, title: String, description: String, color: Color)] = []
+
+        // Need at least one receipt for insights
+        guard !receipts.isEmpty else {
+            return []
+        }
+
+        // Calculate total savings
+        let totalSavings = receipts.reduce(0.0) { total, receipt in
+            return total + receipt.savings
+        }
+
+        if totalSavings > 0 {
+            insights.append((
+                icon: "tag.fill",
+                title: "Savings Found",
+                description: "You've saved $\(String(format: "%.2f", totalSavings)) through discounts and points redemptions.",
+                color: .green
+            ))
+        }
+
+        // Find most frequent store
+        let storeFrequency = receipts.reduce(into: [String: Int]()) { counts, receipt in
+            counts[receipt.store_name, default: 0] += 1
+        }
+
+        if let (storeName, count) = storeFrequency.max(by: { $0.value < $1.value }), count > 1 {
+            insights.append((
+                icon: "bag.fill",
+                title: "Frequent Shopping",
+                description: "You've visited \(storeName) \(count) times.",
+                color: .blue
+            ))
+        }
+
+        // Find largest category
+        let categoryTotals = receipts.flatMap { $0.items }.reduce(into: [String: Double]()) { totals, item in
+            if !item.isDiscount {
+                totals[item.category, default: 0] += item.price
+            }
+        }
+
+        if let (category, amount) = categoryTotals.max(by: { $0.value < $1.value }) {
+            insights.append((
+                icon: iconForCategory(category).name,
+                title: "Top Spending Category",
+                description: "You've spent $\(String(format: "%.2f", amount)) on \(category.lowercased()).",
+                color: iconForCategory(category).color
+            ))
+        }
+
+        // Add a tip if we have few insights
+        if insights.count < 2 {
+            insights.append((
+                icon: "lightbulb.fill",
+                title: "Spending Tip",
+                description: "Add more receipts to get personalized spending insights.",
+                color: .yellow
+            ))
+        }
+
+        return insights
+    }
+
+    // Reuse the category icon mapping
+    func iconForCategory(_ category: String) -> (name: String, color: Color) {
+        switch category.lowercased() {
+        case "rent", "housing":
+            return ("house.fill", .red)
+        case "bills", "utilities":
+            return ("creditcard.fill", .blue)
+        case "groceries", "food":
+            return ("cart.fill", .green)
+        case "internet", "wifi":
+            return ("wifi", .purple)
+        case "tax":
+            return ("dollarsign.circle.fill", .orange)
+        case "transport", "travel":
+            return ("car.fill", .yellow)
+        case "entertainment", "fun":
+            return ("gamecontroller.fill", .pink)
+        case "shopping", "clothing":
+            return ("bag.fill", .cyan)
+        case "health", "medical":
+            return ("cross.case.fill", .mint)
+        case "education", "school":
+            return ("book.fill", .teal)
+        case "subscriptions", "services":
+            return ("person.crop.circle.fill", .indigo)
+        case "dining":
+            return ("fork.knife", .pink)
+        case "other":
+            return ("tag.fill", .gray)
+        default:
+            return ("tag.fill", .gray)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Insights")
+                    .font(.instrumentSans(size: 24, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                Spacer()
+
+                Image(systemName: "lightbulb.fill")
+                    .foregroundColor(.yellow)
+                    .font(.system(size: 20))
+            }
+            .padding(.horizontal)
+
+            let insights = calculateInsights()
+
+            if insights.isEmpty {
+                Text("Add receipts to get personalized insights")
+                    .font(.instrumentSans(size: 16))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(0..<insights.count, id: \.self) { index in
+                            let insight = insights[index]
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Image(systemName: insight.icon)
+                                        .foregroundColor(insight.color)
+                                        .font(.system(size: 18))
+
+                                    Text(insight.title)
+                                        .font(.instrumentSans(size: 16, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                }
+
+                                Text(insight.description)
+                                    .font(.instrumentSans(size: 14))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(16)
+                            .frame(width: 280)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(colorScheme == .dark ?
+                                          insight.color.opacity(0.15) :
+                                          insight.color.opacity(0.1))
+                            )
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+        .padding(.vertical)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ? Color.black.opacity(0.5) : Color.white.opacity(0.9))
+                .shadow(color: colorScheme == .dark ? Color.blue.opacity(0.2) : Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+        )
+        .padding(.horizontal)
     }
 }
 
