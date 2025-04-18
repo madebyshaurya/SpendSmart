@@ -16,29 +16,9 @@ fileprivate struct CameraPreviewView: View {
     @ObservedObject var cameraController: CameraController
 
     var body: some View {
-        ZStack {
-            // Camera preview layer
-            CameraPreviewLayer(cameraController: cameraController)
-                .ignoresSafeArea()
-
-            // Loading indicator
-            if !cameraController.isInitialized {
-                ZStack {
-                    Color.black.opacity(0.7)
-                        .ignoresSafeArea()
-
-                    VStack(spacing: 20) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(1.5)
-
-                        Text("Initializing camera...")
-                            .font(.instrumentSans(size: 16))
-                            .foregroundColor(.white)
-                    }
-                }
-            }
-        }
+        // Camera preview layer
+        CameraPreviewLayer(cameraController: cameraController)
+            .ignoresSafeArea()
     }
 }
 
@@ -84,91 +64,74 @@ fileprivate class CameraController: NSObject, AVCapturePhotoCaptureDelegate, Obs
     var photoOutput: AVCapturePhotoOutput?
     var photoCaptureCompletionBlock: ((UIImage?) -> Void)?
 
-    func prepare(completionHandler: @escaping (Error?) -> Void) {
-        // First, check if we're already initialized
-        if isInitialized && captureSession?.isRunning == true {
-            completionHandler(nil)
-            return
-        }
+    // Initialize the camera session immediately when the controller is created
+    override init() {
+        super.init()
+        setupCameraSession()
+    }
 
-        // Reset state
-        captureSession?.stopRunning()
-        captureSession = nil
-        previewLayer = nil
-        photoOutput = nil
+    private func setupCameraSession() {
+        // Create a capture session
+        let session = AVCaptureSession()
+        session.sessionPreset = .photo
+        self.captureSession = session
 
-        // Set up camera on a high priority background thread
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+        // Configure the session in the background
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
+            // Get the back camera
+            guard let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+                return
+            }
+
+            // Create and add camera input
             do {
-                // Create and configure the capture session
-                let session = AVCaptureSession()
-                session.sessionPreset = .photo
-                self.captureSession = session
-
-                // Get the back camera
-                guard let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-                    DispatchQueue.main.async {
-                        completionHandler(NSError(domain: "CameraController", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not find a camera"]))
-                    }
-                    return
-                }
-
-                // Configure camera for better performance
-                try backCamera.lockForConfiguration()
-                if backCamera.isAutoFocusRangeRestrictionSupported {
-                    backCamera.autoFocusRangeRestriction = .near
-                }
-                if backCamera.isFocusModeSupported(.continuousAutoFocus) {
-                    backCamera.focusMode = .continuousAutoFocus
-                }
-                backCamera.unlockForConfiguration()
-
-                // Create and add camera input
                 let input = try AVCaptureDeviceInput(device: backCamera)
                 if session.canAddInput(input) {
                     session.addInput(input)
-                } else {
-                    throw NSError(domain: "CameraController", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not add camera input"])
                 }
 
                 // Create and add photo output
                 let output = AVCapturePhotoOutput()
-                if #available(iOS 16.0, *) {
-                    // Use the new API for iOS 16+
-                    output.maxPhotoDimensions = CMVideoDimensions(width: 4032, height: 3024) // High resolution
-                } else {
-                    // Use the deprecated API for older iOS versions
-                    output.isHighResolutionCaptureEnabled = true
-                }
                 if session.canAddOutput(output) {
                     session.addOutput(output)
                     self.photoOutput = output
-                } else {
-                    throw NSError(domain: "CameraController", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not add photo output"])
+
+                    // Start the session
+                    session.startRunning()
+
+                    // Update UI on main thread
+                    DispatchQueue.main.async {
+                        self.isInitialized = true
+                    }
                 }
+            } catch {
+                print("Failed to set up camera: \(error.localizedDescription)")
+            }
+        }
+    }
 
-                // Create preview layer
-                let previewLayer = AVCaptureVideoPreviewLayer(session: session)
-                previewLayer.videoGravity = .resizeAspectFill
-                self.previewLayer = previewLayer
+    func prepare(completionHandler: @escaping (Error?) -> Void) {
+        // If the session is already running, just call the completion handler
+        if captureSession?.isRunning == true {
+            completionHandler(nil)
+            return
+        }
 
-                // Start the session
+        // Otherwise, start the session if it's not running
+        if let session = captureSession, !session.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async {
                 session.startRunning()
-
-                // Update UI on main thread
                 DispatchQueue.main.async {
-                    print("Camera initialized successfully")
                     self.isInitialized = true
                     completionHandler(nil)
                 }
-            } catch {
-                print("Camera initialization error: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    completionHandler(error)
-                }
             }
+        } else {
+            // If there's no session, set up a new one
+            setupCameraSession()
+            completionHandler(nil)
         }
     }
 
@@ -275,46 +238,7 @@ struct MultiImageCaptureView: View {
 
                 Spacer()
 
-                // Receipt guide overlay (only shown initially)
-                if showingGuide {
-                    VStack {
-                        // Receipt frame guide
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(
-                                Color.white,
-                                style: StrokeStyle(lineWidth: 2, dash: [10, 10])
-                            )
-                            .frame(width: UIScreen.main.bounds.width * 0.8, height: UIScreen.main.bounds.height * 0.6)
-                            .padding(.bottom, 20)
-
-                        Text("Position your receipt within the frame")
-                            .font(.instrumentSans(size: 16, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.black.opacity(0.6))
-                            )
-
-                        Text("Take multiple photos for long receipts")
-                            .font(.instrumentSans(size: 14))
-                            .foregroundColor(.white)
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.black.opacity(0.6))
-                            )
-                    }
-                    .transition(.opacity)
-                    .onAppear {
-                        // Hide guide after 3 seconds
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                            withAnimation {
-                                showingGuide = false
-                            }
-                        }
-                    }
-                }
+                // No receipt guide overlay
 
                 // Bottom controls
                 VStack(spacing: 20) {
@@ -544,11 +468,7 @@ struct MultiImageCaptureView: View {
             }
         }
         .onAppear {
-            cameraController.prepare { error in
-                if let error = error {
-                    print("Camera error: \(error.localizedDescription)")
-                }
-            }
+            cameraController.prepare { _ in }
         }
         .onDisappear {
             cameraController.stopSession()

@@ -11,6 +11,8 @@ import AVFoundation
 import Vision
 import GoogleGenerativeAI
 import Supabase
+// Import the receipt validation service
+import Foundation
 
 struct NewExpenseView: View {
     var onReceiptAdded: (Receipt) -> Void
@@ -27,17 +29,23 @@ struct NewExpenseView: View {
     @State private var showImageCarousel = false
     @State private var currentImageIndex = 0
     @State private var showFirstTimeGuide = false
+    @State private var showInvalidReceiptAlert = false
+    @State private var invalidReceiptMessage = ""
     @EnvironmentObject var appState: AppState
 
     enum ProcessingStep: String, CaseIterable {
+        case validatingReceipt = "Validating Receipt"
         case extractingText = "Extracting Text"
         case analyzingReceipt = "Analyzing Receipt"
         case savingToDatabase = "Saving to Database"
         case complete = "Complete!"
         case error = "Error Processing Receipt"
+        case invalidReceipt = "Invalid Receipt"
 
         var systemImage: String {
             switch self {
+            case .validatingReceipt:
+                return "checkmark.shield"
             case .extractingText:
                 return "text.viewfinder"
             case .analyzingReceipt:
@@ -46,13 +54,15 @@ struct NewExpenseView: View {
                 return "arrow.down.doc"
             case .complete:
                 return "checkmark.circle"
-            case .error:
+            case .error, .invalidReceipt:
                 return "exclamationmark.triangle"
             }
         }
 
         var description: String {
             switch self {
+            case .validatingReceipt:
+                return "Checking if image contains a valid receipt..."
             case .extractingText:
                 return "Reading receipt details..."
             case .analyzingReceipt:
@@ -63,11 +73,15 @@ struct NewExpenseView: View {
                 return "Receipt processed successfully!"
             case .error:
                 return "Sorry, couldn't process this receipt"
+            case .invalidReceipt:
+                return "This doesn't appear to be a valid receipt"
             }
         }
 
         var color: Color {
             switch self {
+            case .validatingReceipt:
+                return .cyan
             case .extractingText:
                 return .blue
             case .analyzingReceipt:
@@ -76,7 +90,7 @@ struct NewExpenseView: View {
                 return .green
             case .complete:
                 return .green
-            case .error:
+            case .error, .invalidReceipt:
                 return .red
             }
         }
@@ -297,7 +311,38 @@ struct NewExpenseView: View {
                         isAddingExpense = true
                         Task {
                             do {
-                                // Start progress animation sequence
+                                // Start with receipt validation
+                                withAnimation {
+                                    progressStep = .validatingReceipt
+                                }
+
+                                // Validate the receipt images
+                                let imagesToValidate = !capturedImages.isEmpty ? capturedImages : (selectedImage != nil ? [selectedImage!] : [])
+
+                                do {
+                                    let (isValid, message) = await ReceiptValidationService.shared.validateReceiptImages(imagesToValidate)
+
+                                    if !isValid {
+                                        // Handle invalid receipt
+                                        withAnimation {
+                                            progressStep = .invalidReceipt
+                                        }
+                                        invalidReceiptMessage = message
+                                        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                                        withAnimation {
+                                            isAddingExpense = false
+                                            progressStep = nil
+                                        }
+                                        showInvalidReceiptAlert = true
+                                        return
+                                    }
+                                } catch {
+                                    print("Error during receipt validation: \(error)")
+                                    // Continue with processing even if validation fails
+                                    // This ensures the app doesn't block users if the validation service has issues
+                                }
+
+                                // Continue with text extraction
                                 withAnimation {
                                     progressStep = .extractingText
                                 }
@@ -423,6 +468,15 @@ struct NewExpenseView: View {
                 Button("Got it!", role: .cancel) { }
             } message: {
                 Text("You can take multiple photos of a long receipt. Just tap the capture button for each section of the receipt, then tap 'Done' when finished.")
+            }
+            .alert("Invalid Receipt", isPresented: $showInvalidReceiptAlert) {
+                Button("OK", role: .cancel) {
+                    // Clear images if they're invalid
+                    capturedImages = []
+                    selectedImage = nil
+                }
+            } message: {
+                Text(invalidReceiptMessage.isEmpty ? "The images you provided don't appear to contain valid receipts. Please try again with clear photos of actual receipts." : invalidReceiptMessage)
             }
         }
     }
