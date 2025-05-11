@@ -19,7 +19,15 @@ class LogoService {
     static let shared = LogoService()
     private let publicKey = "pk_EB5BNaRARdeXj64ti60xGQ"
 
+    // Default colors to use when no logo is available
+    private let defaultColors: [Color] = [.gray, Color(hex: "555555"), Color(hex: "777777")]
+
     func fetchLogo(for storeName: String) async -> (UIImage?, [Color]) {
+        // Handle empty store names
+        guard !storeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return (nil, defaultColors)
+        }
+
         // Check cache first
         if let cached = LogoCache.shared.logoCache[storeName.lowercased()] {
             return (cached.image, cached.colors)
@@ -29,47 +37,91 @@ class LogoService {
         let urlString = "https://api.logo.dev/search?q=\(formattedName)"
 
         guard let url = URL(string: urlString) else {
-            return (nil, [.gray])
+            print("Invalid URL for logo fetch: \(urlString)")
+            return (nil, defaultColors)
         }
 
         var request = URLRequest(url: url)
-        request.addValue("Bearer \(secretKey)", forHTTPHeaderField: "Authorization") // Fixed header
+        request.addValue("Bearer \(secretKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 15 // Set a reasonable timeout
 
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let jsonString = String(data: data, encoding: .utf8) {
-                print("Raw API Response: \(jsonString)")
-            }
+        // Implement retry logic
+        let maxRetries = 1
+        var retryCount = 0
 
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                print("Error response: \(response)")
-                return (nil, [.gray])
-            }
+        while retryCount <= maxRetries {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
 
-            // Decode JSON as an array of dictionaries
-            if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-               let firstResult = jsonArray.first,
-               let logoUrlString = firstResult["logo_url"] as? String,
-               let logoUrl = URL(string: logoUrlString) {
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("Error: Not an HTTP response")
+                    retryCount += 1
+                    if retryCount > maxRetries {
+                        return (nil, defaultColors)
+                    }
+                    try await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 second before retry
+                    continue
+                }
 
-                // Fetch the logo image
-                let (imageData, _) = try await URLSession.shared.data(from: logoUrl)
-                if let image = UIImage(data: imageData) {
+                if httpResponse.statusCode != 200 {
+                    print("Error response: HTTP \(httpResponse.statusCode)")
+                    retryCount += 1
+                    if retryCount > maxRetries {
+                        return (nil, defaultColors)
+                    }
+                    try await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 second before retry
+                    continue
+                }
+
+                // Decode JSON as an array of dictionaries
+                do {
+                    let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+
+                    guard let array = jsonArray, !array.isEmpty,
+                          let firstResult = array.first,
+                          let logoUrlString = firstResult["logo_url"] as? String,
+                          let logoUrl = URL(string: logoUrlString) else {
+                        print("Failed to parse logo JSON response")
+                        return (nil, defaultColors)
+                    }
+
+                    // Fetch the logo image with timeout
+                    let logoRequest = URLRequest(url: logoUrl, timeoutInterval: 10)
+                    let (imageData, _) = try await URLSession.shared.data(for: logoRequest)
+
+                    guard let image = UIImage(data: imageData) else {
+                        print("Failed to create image from data")
+                        return (nil, defaultColors)
+                    }
+
                     let colors = image.dominantColors(count: 3)
+                    let finalColors = colors.isEmpty ? defaultColors : colors
 
                     // Cache the result on the main thread
                     await MainActor.run {
-                        LogoCache.shared.logoCache[storeName.lowercased()] = (image, colors)
+                        LogoCache.shared.logoCache[storeName.lowercased()] = (image, finalColors)
                     }
 
-                    return (image, colors)
+                    return (image, finalColors)
+                } catch {
+                    print("JSON parsing error: \(error)")
+                    retryCount += 1
+                    if retryCount > maxRetries {
+                        return (nil, defaultColors)
+                    }
+                    continue
                 }
+            } catch {
+                print("Network error fetching logo: \(error)")
+                retryCount += 1
+                if retryCount > maxRetries {
+                    return (nil, defaultColors)
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 second before retry
             }
-        } catch {
-            print("Error fetching logo: \(error)")
         }
 
-        return (nil, [.gray])
+        return (nil, defaultColors)
     }
 }
 
@@ -312,7 +364,13 @@ struct HistoryView: View {
                 .padding(.top, 10) // Adjust top padding
             }
             .sheet(item: $selectedReceipt) { receipt in
-                ReceiptDetailView(receipt: receipt)
+                ReceiptDetailView(receipt: receipt, onUpdate: { updatedReceipt in
+                    // Update the receipt in our local array
+                    if let index = receipts.firstIndex(where: { $0.id == updatedReceipt.id }) {
+                        receipts[index] = updatedReceipt
+                    }
+                })
+                .environmentObject(appState)
             }
             .onAppear {
                 Task {
@@ -575,26 +633,39 @@ struct EnhancedReceiptCard: View {
                                                 .frame(width: 8, height: 8)
                                         }
 
-                                        // Item name with possible discount description
-                                        VStack(alignment: .leading, spacing: 0) {
+                                        // Item name with optional discount tag
+                                        HStack(spacing: 4) {
                                             Text(item.name)
                                                 .font(.instrumentSans(size: 13))
                                                 .foregroundColor(.primary.opacity(0.8))
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
 
-                                            if let discountDescription = item.discountDescription {
-                                                Text(discountDescription)
-                                                    .font(.instrumentSans(size: 10))
-                                                    .foregroundColor(item.isDiscount ? .green : .secondary)
+                                            // Small discount tag if needed
+                                            if let _ = item.discountDescription, item.isDiscount {
+                                                Text("DISCOUNT")
+                                                    .font(.instrumentSans(size: 8))
+                                                    .foregroundColor(.white)
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 1)
+                                                    .background(
+                                                        Capsule()
+                                                            .fill(Color.green)
+                                                    )
                                             }
                                         }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                        Spacer(minLength: 4)
 
                                         // Price display
                                         HStack(spacing: 2) {
-                                            if let originalPrice = item.originalPrice, originalPrice != item.price {
+                                            // Only show strikethrough for actual discounts with originalPrice > 0
+                                            if let originalPrice = item.originalPrice, originalPrice > 0, originalPrice != item.price {
                                                 Text("$\(originalPrice, specifier: "%.2f")")
                                                     .font(.instrumentSans(size: 10))
                                                     .foregroundColor(.secondary)
-                                                    .strikethrough(true, color: .secondary)
+                                                    .strikethrough(true, color: .green.opacity(0.7))
                                             }
 
                                             Text("$\(item.price, specifier: "%.2f")")
@@ -604,11 +675,34 @@ struct EnhancedReceiptCard: View {
                                     }
                                     .padding(.vertical, 6)
                                     .padding(.horizontal, 10)
+                                    .frame(height: 44) // Fixed height for all items
                                     .background(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .fill(colorScheme == .dark ?
-                                                  logoColors[index % max(1, logoColors.count)].opacity(0.15) :
-                                                  logoColors[index % max(1, logoColors.count)].opacity(0.08))
+                                            .fill(
+                                                colorScheme == .dark
+                                                ? LinearGradient(
+                                                    colors: [
+                                                        logoColors[index % max(1, logoColors.count)].opacity(0.2),
+                                                        logoColors[index % max(1, logoColors.count)].opacity(0.1)
+                                                    ],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                  )
+                                                : LinearGradient(
+                                                    colors: [
+                                                        logoColors[index % max(1, logoColors.count)].opacity(0.1),
+                                                        logoColors[index % max(1, logoColors.count)].opacity(0.05)
+                                                    ],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                  )
+                                            )
+                                            .shadow(
+                                                color: logoColors[index % max(1, logoColors.count)].opacity(0.1),
+                                                radius: 3,
+                                                x: 0,
+                                                y: 1
+                                            )
                                     )
                                 }
 
@@ -620,9 +714,28 @@ struct EnhancedReceiptCard: View {
                                     }
                                     .padding(.vertical, 6)
                                     .padding(.horizontal, 10)
+                                    .frame(height: 44) // Match height with other items
                                     .background(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.secondary.opacity(0.1))
+                                            .fill(
+                                                colorScheme == .dark
+                                                ? LinearGradient(
+                                                    colors: [Color.secondary.opacity(0.15), Color.secondary.opacity(0.08)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                  )
+                                                : LinearGradient(
+                                                    colors: [Color.secondary.opacity(0.12), Color.secondary.opacity(0.05)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                  )
+                                            )
+                                            .shadow(
+                                                color: Color.secondary.opacity(0.1),
+                                                radius: 3,
+                                                x: 0,
+                                                y: 1
+                                            )
                                     )
                                 }
                             }
@@ -761,7 +874,7 @@ struct EnhancedReceiptCard: View {
         } else if item.price == 0 {
             return .green // Free items
         } else if let originalPrice = item.originalPrice, originalPrice > item.price {
-            return .orange // Discounted items
+            return .green // Discounted items
         } else {
             return logoColors[index % max(1, logoColors.count)]
         }
@@ -861,11 +974,12 @@ struct ItemCard: View {
 
                 // Price display with original price if available
                 VStack(alignment: .trailing, spacing: 2) {
-                    if let originalPrice = item.originalPrice, originalPrice != item.price {
+                    // Only show strikethrough for actual discounts with originalPrice > 0
+                    if let originalPrice = item.originalPrice, originalPrice > 0, originalPrice != item.price {
                         Text("$\(originalPrice, specifier: "%.2f")")
                             .font(.spaceGrotesk(size: 14))
                             .foregroundColor(.secondary)
-                            .strikethrough(true, color: .secondary)
+                            .strikethrough(true, color: .green.opacity(0.7))
                     }
 
                     Text("$\(item.price, specifier: "%.2f")")
@@ -911,7 +1025,7 @@ struct ItemCard: View {
         } else if item.price == 0 {
             return .green // Free items
         } else if let originalPrice = item.originalPrice, originalPrice > item.price {
-            return .orange // Discounted items
+            return .green // Discounted items
         } else {
             return getLogoColor(at: index % logoColors.count)
         }

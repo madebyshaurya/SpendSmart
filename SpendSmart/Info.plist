@@ -9,27 +9,7 @@
 		<string>InstrumentSans-Variable.ttf</string>
 		<string>InstrumentSerif-Italic.ttf</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>SpendSmart needs camera access to scan your receipts and automatically extract information.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>SpendSmart needs access to your photo library to select receipt images for processing.</string>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
-	<key>UIRequiredDeviceCapabilities</key>
-	<array>
-		<string>armv7</string>
-	</array>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-	</array>
 </dict>
 </plist>

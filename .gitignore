@@ -4,6 +4,10 @@
 
 ## User settings
 xcuserdata/
+*.xcuserstate
+project.xcworkspace/
+xcuserdata/
+UserInterfaceState.xcuserstate
 
 ## Obj-C/Swift specific
 *.hmap
@@ -57,12 +61,23 @@ Carthage/Build/
 # https://docs.fastlane.tools/best-practices/source-control/#source-control
 
 .DS_Store
+**/.DS_Store
 
 fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 
+# API Keys and Sensitive Information
 SpendSmart/APIKeys.swift
-SpendSmart/APIKeys.swift
-SpendSmart/APIKeys.swift
+**/APIKeys.swift
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.mobileprovision
+
+# Local configuration files
+*.local.json
+local.settings.json

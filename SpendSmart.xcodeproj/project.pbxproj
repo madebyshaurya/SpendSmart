@@ -296,13 +296,16 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"SpendSmart/Preview Content\"";
+				DEVELOPMENT_TEAM = M542AQBJC5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SpendSmart/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "We need your camera to scan your receipts";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "SpendSmart needs camera access to scan your receipts and automatically extract information.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SpendSmart needs access to your photo library to select receipt images for processing.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -310,7 +313,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartAppStore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -327,13 +330,16 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"SpendSmart/Preview Content\"";
+				DEVELOPMENT_TEAM = M542AQBJC5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SpendSmart/Info.plist;
-				INFOPLIST_KEY_NSCameraUsageDescription = "We need your camera to scan your receipts";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "SpendSmart needs camera access to scan your receipts and automatically extract information.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SpendSmart needs access to your photo library to select receipt images for processing.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -341,7 +347,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartAppStore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

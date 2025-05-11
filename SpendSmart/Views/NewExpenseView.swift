@@ -28,7 +28,6 @@ struct NewExpenseView: View {
     @State private var rotationDegrees: Double = 0
     @State private var showImageCarousel = false
     @State private var currentImageIndex = 0
-    @State private var showFirstTimeGuide = false
     @State private var showInvalidReceiptAlert = false
     @State private var invalidReceiptMessage = ""
     @EnvironmentObject var appState: AppState
@@ -244,11 +243,7 @@ struct NewExpenseView: View {
                             // Camera button (always multi-image)
                             Button {
                                 showMultiCamera = true
-                                // Show first-time guide if it's the first time
-                                if !UserDefaults.standard.bool(forKey: "hasSeenMultiImageGuide") {
-                                    showFirstTimeGuide = true
-                                    UserDefaults.standard.set(true, forKey: "hasSeenMultiImageGuide")
-                                }
+                                // Removed first-time guide as requested
                             } label: {
                                 HStack {
                                     Image(systemName: "camera.viewfinder")
@@ -317,7 +312,7 @@ struct NewExpenseView: View {
                                 }
 
                                 // Validate the receipt images
-                                let imagesToValidate = !capturedImages.isEmpty ? capturedImages : (selectedImage != nil ? [selectedImage!] : [])
+                                let imagesToValidate = !capturedImages.isEmpty ? capturedImages : (selectedImage.map { [$0] } ?? [])
 
                                 do {
                                     let (isValid, message) = await ReceiptValidationService.shared.validateReceiptImages(imagesToValidate)
@@ -428,25 +423,46 @@ struct NewExpenseView: View {
                         HStack {
                             Image(systemName: !capturedImages.isEmpty ? "doc.viewfinder" : "plus.circle")
                                 .font(.system(size: 18))
-                            Text(!capturedImages.isEmpty ? "Process Multi-Image Receipt" : "Add Expense")
-                                .font(.instrumentSans(size: 18, weight: .semibold))
+                            Text(!capturedImages.isEmpty ? "Process Receipt" : "Add Expense")
+                                .font(.spaceGrotesk(size: 18))
+
+                            // Add subtle sparkle icon for Process Receipt
+                            if !capturedImages.isEmpty {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.white)
+                                    .opacity(0.9)
+                            }
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(!capturedImages.isEmpty ?
-                                      LinearGradient(
-                                        gradient: Gradient(colors: [Color(hex: "8B5CF6"), Color(hex: "6D28D9")]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                      ) : LinearGradient(
-                                        gradient: Gradient(colors: [Color.orange, Color.orange.opacity(0.7)]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                      ))
+                            ZStack {
+                                // 3D effect with shadow
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(!capturedImages.isEmpty ?
+                                          Color(hex: "6D28D9") : Color.orange.opacity(0.7))
+                                    .offset(y: 3)
+                                    .opacity(0.6)
+
+                                // Main button background
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(!capturedImages.isEmpty ?
+                                          LinearGradient(
+                                            gradient: Gradient(colors: [Color(hex: "8B5CF6"), Color(hex: "6D28D9")]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                          ) : LinearGradient(
+                                            gradient: Gradient(colors: [Color.orange, Color.orange.opacity(0.7)]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                          ))
+                            }
                         )
                         .foregroundColor(.white)
+                        // Add subtle press animation
+                        .scaleEffect(isAddingExpense ? 0.95 : 1.0)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isAddingExpense)
                     }
                     .padding(.horizontal)
                     .padding(.bottom, 20)
@@ -464,11 +480,6 @@ struct NewExpenseView: View {
             .sheet(isPresented: $showMultiCamera) {
                 MultiImageCaptureView(capturedImages: $capturedImages)
             }
-            .alert("Multi-Image Scanning", isPresented: $showFirstTimeGuide) {
-                Button("Got it!", role: .cancel) { }
-            } message: {
-                Text("You can take multiple photos of a long receipt. Just tap the capture button for each section of the receipt, then tap 'Done' when finished.")
-            }
             .alert("Invalid Receipt", isPresented: $showInvalidReceiptAlert) {
                 Button("OK", role: .cancel) {
                     // Clear images if they're invalid
@@ -483,20 +494,29 @@ struct NewExpenseView: View {
 
 
     func uploadImage(_ image: UIImage) async -> String {
-        guard let imageData = image.jpegData(compressionQuality: 0.7) else {
+        // First, resize the image to reduce memory usage and upload time
+        let resizedImage = resizeImage(image, targetSize: CGSize(width: 1200, height: 1200))
+
+        guard let imageData = resizedImage.jpegData(compressionQuality: 0.7) else {
             print("Failed to convert image to data")
             return "placeholder_url"
         }
 
         let apiKey = imgBBAPIKey // Your imgBB API key
-        let urlString = "https://api.imgbb.com/1/upload"
+        guard let url = URL(string: "https://api.imgbb.com/1/upload") else {
+            print("Invalid URL for image upload")
+            return "placeholder_url"
+        }
 
         // Create multipart form data
         let boundary = UUID().uuidString
 
-        var request = URLRequest(url: URL(string: urlString)!)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        // Set a timeout to prevent hanging
+        request.timeoutInterval = 30
 
         var body = Data()
 
@@ -517,28 +537,93 @@ struct NewExpenseView: View {
 
         request.httpBody = body
 
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+        // Implement retry logic
+        let maxRetries = 2
+        var retryCount = 0
 
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                print("Error: Invalid HTTP response")
-                return "placeholder_url"
-            }
+        while retryCount <= maxRetries {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
 
-            // Parse the response
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let data = json["data"] as? [String: Any],
-               let url = data["url"] as? String {
-                print("Image uploaded successfully: \(url)")
-                return url
-            } else {
-                print("Failed to parse image upload response")
-                return "placeholder_url"
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("Error: Not an HTTP response")
+                    retryCount += 1
+                    if retryCount > maxRetries {
+                        return "placeholder_url"
+                    }
+                    try await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
+                    continue
+                }
+
+                if httpResponse.statusCode != 200 {
+                    print("Error: HTTP status code \(httpResponse.statusCode)")
+                    retryCount += 1
+                    if retryCount > maxRetries {
+                        return "placeholder_url"
+                    }
+                    try await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
+                    continue
+                }
+
+                // Parse the response
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let responseData = json["data"] as? [String: Any],
+                       let url = responseData["url"] as? String {
+                        print("Image uploaded successfully: \(url)")
+                        return url
+                    } else {
+                        print("Failed to parse image upload response")
+                        retryCount += 1
+                        if retryCount > maxRetries {
+                            return "placeholder_url"
+                        }
+                        continue
+                    }
+                } catch {
+                    print("JSON parsing error: \(error)")
+                    retryCount += 1
+                    if retryCount > maxRetries {
+                        return "placeholder_url"
+                    }
+                    continue
+                }
+            } catch {
+                print("Image upload error: \(error)")
+                retryCount += 1
+                if retryCount > maxRetries {
+                    return "placeholder_url"
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
             }
-        } catch {
-            print("Image upload error: \(error)")
-            return "placeholder_url"
         }
+
+        return "placeholder_url"
+    }
+
+    // Helper function to resize images before upload
+    private func resizeImage(_ image: UIImage, targetSize: CGSize) -> UIImage {
+        let size = image.size
+
+        let widthRatio  = targetSize.width  / size.width
+        let heightRatio = targetSize.height / size.height
+
+        // Use the smaller ratio to ensure the image fits within the target size
+        let scaleFactor = min(widthRatio, heightRatio)
+
+        // If the image is already smaller than the target size, return it as is
+        if scaleFactor > 1 {
+            return image
+        }
+
+        let scaledSize = CGSize(width: size.width * scaleFactor, height: size.height * scaleFactor)
+        let renderer = UIGraphicsImageRenderer(size: scaledSize)
+
+        let scaledImage = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: scaledSize))
+        }
+
+        return scaledImage
     }
 
 
@@ -707,13 +792,34 @@ struct NewExpenseView: View {
         }
 
         do {
+            // First, check if the JSON is an array or a single object
             let decoder = JSONDecoder()
             let dateFormatter = DateFormatter()
             dateFormatter.dateFormat = "yyyy-MM-dd" // Matches the format in JSON
-
             decoder.dateDecodingStrategy = .formatted(dateFormatter)
 
-            let parsedData = try decoder.decode(TemporaryReceipt.self, from: data)
+            // Try to determine if we have an array or a single object
+            let json = try JSONSerialization.jsonObject(with: data)
+
+            // Handle the case where the response is an array
+            var receiptData: Data
+            if let jsonArray = json as? [Any], !jsonArray.isEmpty {
+                print("Detected JSON array, extracting first item")
+                // Extract the first item from the array
+                if let firstItem = jsonArray.first,
+                   let firstItemData = try? JSONSerialization.data(withJSONObject: firstItem) {
+                    receiptData = firstItemData
+                } else {
+                    print("Failed to extract first item from JSON array")
+                    return nil
+                }
+            } else {
+                // It's already a single object, use the original data
+                receiptData = data
+            }
+
+            // Now decode the single receipt object
+            let parsedData = try decoder.decode(TemporaryReceipt.self, from: receiptData)
 
             // Calculate total amount if missing by summing items
             let calculatedTotalAmount: Double
