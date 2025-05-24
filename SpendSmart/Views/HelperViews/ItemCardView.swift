@@ -6,20 +6,22 @@
 //
 
 import SwiftUI
+import Foundation
 
 struct ReceiptItemCard: View {
     let item: ReceiptItem
     let logoColors: [Color]
     let index: Int
-    let currencySymbol: String
+    let currencyCode: String
     @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var currencyManager = CurrencyManager.shared
 
-    // Initialize with default currency symbol if not provided
-    init(item: ReceiptItem, logoColors: [Color], index: Int, currencySymbol: String = "$") {
+    // Initialize with default currency code if not provided
+    init(item: ReceiptItem, logoColors: [Color], index: Int, currencyCode: String = "USD") {
         self.item = item
         self.logoColors = logoColors
         self.index = index
-        self.currencySymbol = currencySymbol
+        self.currencyCode = currencyCode
     }
 
     var body: some View {
@@ -53,17 +55,41 @@ struct ReceiptItemCard: View {
 
                 // Price display
                 HStack(spacing: 4) {
-                    // Only show original price for discount items with a valid original price
-                    if item.isDiscount, let originalPrice = item.originalPrice, originalPrice > 0 {
-                        Text("\(getCurrencySymbol())\(originalPrice, specifier: "%.2f")")
+                    // Only show original price for items with a valid original price that's greater than the current price
+                    if let originalPrice = item.originalPrice, originalPrice > item.price, originalPrice > 0 {
+                        // Always show original price in receipt's currency
+                        Text(currencyManager.formatAmount(originalPrice, currencyCode: currencyCode))
                             .font(.instrumentSans(size: 14))
                             .foregroundColor(.secondary)
                             .strikethrough(true, color: .green.opacity(0.7))
                     }
 
-                    Text("\(getCurrencySymbol())\(item.price, specifier: "%.2f")")
-                        .font(.instrumentSans(size: 18, weight: .medium))
-                        .foregroundColor(item.isDiscount ? .green : .primary)
+                    // Show original currency as primary and preferred as secondary
+                    VStack(alignment: .trailing, spacing: 2) {
+                        // Always show original currency amount as primary
+                        Text(currencyManager.formatAmount(item.price, currencyCode: currencyCode))
+                            .font(.instrumentSans(size: 18, weight: .medium))
+                            .foregroundColor(item.isDiscount ? .green : .primary)
+
+                        // Show converted price ONLY if:
+                        // 1. The receipt currency is different from preferred currency
+                        // 2. The item price is not zero (no need to show conversion for free items)
+                        if currencyCode != currencyManager.preferredCurrency && item.price != 0 {
+                            HStack(spacing: 2) {
+                                Text("≈")
+                                    .font(.instrumentSans(size: 10))
+                                    .foregroundColor(.secondary)
+
+                                Text(currencyManager.formatAmount(
+                                    currencyManager.convertAmountSync(item.price,
+                                                                   from: currencyCode,
+                                                                   to: currencyManager.preferredCurrency),
+                                    currencyCode: currencyManager.preferredCurrency))
+                                    .font(.instrumentSans(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -124,9 +150,9 @@ struct ReceiptItemCard: View {
         return .blue
     }
 
-    // Helper function to get the currency symbol
-    private func getCurrencySymbol() -> String {
-        return currencySymbol
+    // Helper function to get the currency code
+    private func getCurrencyCode() -> String {
+        return currencyCode
     }
 }
 
@@ -142,7 +168,8 @@ struct ReceiptItemCard_Previews: PreviewProvider {
                     category: "Dining"
                 ),
                 logoColors: [.blue, .green],
-                index: 0
+                index: 0,
+                currencyCode: "USD"
             )
 
             // Discount item
@@ -157,7 +184,8 @@ struct ReceiptItemCard_Previews: PreviewProvider {
                     isDiscount: true
                 ),
                 logoColors: [.blue, .green],
-                index: 1
+                index: 1,
+                currencyCode: "USD"
             )
 
             // Free item
@@ -172,7 +200,8 @@ struct ReceiptItemCard_Previews: PreviewProvider {
                     isDiscount: true
                 ),
                 logoColors: [.blue, .green],
-                index: 2
+                index: 2,
+                currencyCode: "USD"
             )
         }
         .padding()

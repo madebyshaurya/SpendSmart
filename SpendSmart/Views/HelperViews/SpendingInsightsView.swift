@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Foundation
 
 struct SpendingInsightsView: View {
     var receipts: [Receipt]
@@ -13,6 +14,7 @@ struct SpendingInsightsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedStore: String? = nil
     @State private var showStoreReceipts = false
+    @StateObject private var currencyManager = CurrencyManager.shared
 
     // Computed properties for UI elements
     private var backgroundFill: some View {
@@ -52,7 +54,7 @@ struct SpendingInsightsView: View {
             insights.append((
                 icon: "tag.fill",
                 title: "Savings Found",
-                description: "You've saved $\(String(format: "%.2f", totalSavings)) through discounts and points redemptions.",
+                description: "You've saved \(currencyManager.formatAmount(totalSavings, currencyCode: currencyManager.preferredCurrency)) through discounts and points redemptions.",
                 color: .green
             ))
         }
@@ -82,7 +84,7 @@ struct SpendingInsightsView: View {
             insights.append((
                 icon: iconForCategory(category).name,
                 title: "Top Spending Category",
-                description: "You've spent $\(String(format: "%.2f", amount)) on \(category.lowercased()).",
+                description: "You've spent \(currencyManager.formatAmount(amount, currencyCode: currencyManager.preferredCurrency)) on \(category.lowercased()).",
                 color: iconForCategory(category).color
             ))
         }
@@ -253,7 +255,7 @@ struct SpendingInsightsView: View {
 
                                     Spacer()
 
-                                    Text("$\(receipt.total_amount, specifier: "%.2f")")
+                                    Text(currencyManager.formatAmount(receipt.total_amount, currencyCode: receipt.currency))
                                         .font(.spaceGrotesk(size: 18, weight: .bold))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                 }

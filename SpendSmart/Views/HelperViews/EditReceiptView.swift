@@ -495,7 +495,7 @@ struct EditReceiptView: View {
                     .font(.instrumentSans(size: 16, weight: .medium))
                     .foregroundColor(item.isDiscount ? .green : .primary)
 
-                if item.isDiscount, let originalPrice = item.originalPrice {
+                if let originalPrice = item.originalPrice, originalPrice > item.price {
                     Text("Original: $\(originalPrice, specifier: "%.2f")")
                         .font(.instrumentSans(size: 12))
                         .foregroundColor(.secondary)

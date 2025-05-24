@@ -277,7 +277,7 @@ struct MultiImageCaptureView: View {
                         )
                     }
 
-                    HStack(spacing: 30) {
+                    HStack(spacing: 50) {
                         // Done button
                         Button {
                             showingConfirmation = true
@@ -317,26 +317,6 @@ struct MultiImageCaptureView: View {
                             }
                         }
                         .buttonStyle(MultiImageScaleButtonStyle())
-
-                        // Gallery button (if needed)
-                        Button {
-                            // Show image picker or gallery
-                        } label: {
-                            Image(systemName: "photo.on.rectangle")
-                                .font(.system(size: 24))
-                                .foregroundColor(.white)
-                                .padding(12)
-                                .background(
-                                    Circle()
-                                        .fill(
-                                            LinearGradient(
-                                                gradient: Gradient(colors: [Color(hex: "2196F3"), Color(hex: "1565C0")]),
-                                                startPoint: .top,
-                                                endPoint: .bottom
-                                            )
-                                        )
-                                )
-                        }
                     }
                     .padding(.bottom, 30)
                 }
@@ -403,64 +383,76 @@ struct MultiImageCaptureView: View {
                 .transition(.opacity)
             }
 
-            // Confirmation dialog
+            // Confirmation dialog - Redesigned to be more minimalistic and elegant
             if showingConfirmation {
                 ZStack {
-                    Color.black.opacity(0.7)
+                    Color.black.opacity(0.6)
                         .ignoresSafeArea()
                         .onTapGesture {
                             showingConfirmation = false
                         }
 
-                    VStack(spacing: 20) {
-                        Text("Finish Capturing?")
-                            .font(.instrumentSerif(size: 24))
+                    VStack(spacing: 16) {
+                        Text("\(capturedImages.count) image\(capturedImages.count == 1 ? "" : "s") captured")
+                            .font(.system(size: 18, weight: .medium))
                             .foregroundColor(.white)
+                            .padding(.top, 8)
 
-                        Text("You've captured \(capturedImages.count) image\(capturedImages.count == 1 ? "" : "s").")
-                            .font(.instrumentSans(size: 16))
-                            .foregroundColor(.white.opacity(0.8))
+                        Divider()
+                            .background(Color.white.opacity(0.2))
+                            .padding(.horizontal, 8)
 
-                        HStack(spacing: 20) {
+                        HStack(spacing: 16) {
                             Button {
                                 showingConfirmation = false
                             } label: {
-                                Text("Continue Capturing")
-                                    .font(.instrumentSans(size: 16, weight: .medium))
-                                    .foregroundColor(.white)
-                                    .padding(.vertical, 12)
-                                    .padding(.horizontal, 20)
-                                    .background(
-                                        Capsule()
-                                            .fill(Color.gray.opacity(0.6))
-                                    )
+                                HStack(spacing: 6) {
+                                    Image(systemName: "camera.fill")
+                                        .font(.system(size: 14))
+                                    Text("Continue")
+                                        .font(.system(size: 15, weight: .medium))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 16)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.15))
+                                        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+                                )
                             }
 
                             Button {
                                 dismiss()
                             } label: {
-                                Text("Done")
-                                    .font(.instrumentSans(size: 16, weight: .medium))
-                                    .foregroundColor(.white)
-                                    .padding(.vertical, 12)
-                                    .padding(.horizontal, 20)
-                                    .background(
-                                        Capsule()
-                                            .fill(
-                                                LinearGradient(
-                                                    gradient: Gradient(colors: [Color(hex: "4CAF50"), Color(hex: "2E7D32")]),
-                                                    startPoint: .top,
-                                                    endPoint: .bottom
-                                                )
-                                            )
-                                    )
+                                HStack(spacing: 6) {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 14))
+                                    Text("Done")
+                                        .font(.system(size: 15, weight: .medium))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 16)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.blue.opacity(0.8))
+                                        .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
+                                )
                             }
                         }
+                        .padding(.bottom, 8)
                     }
-                    .padding(30)
+                    .padding(.vertical, 16)
+                    .padding(.horizontal, 20)
                     .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color(hex: "1E293B"))
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.black.opacity(0.8))
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                            )
+                            .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
                     )
                     .padding(.horizontal, 40)
                 }

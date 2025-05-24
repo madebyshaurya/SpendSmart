@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import Foundation
+import UIKit
 
 struct ReceiptDetailView: View {
     let receipt: Receipt
@@ -19,9 +21,12 @@ struct ReceiptDetailView: View {
     // Local state for logo and colors; initially not set.
     @State private var logoImage: UIImage? = nil
     @State private var logoColors: [Color] = [.gray]
+    @State private var isRefreshingRates: Bool = false
+    @State private var showRateRefreshAlert: Bool = false
 
     // Use the shared cache
     @StateObject private var logoCache = LogoCache.shared
+    @StateObject private var currencyManager = CurrencyManager.shared
 
     @State private var animateContent = false
     @State private var currentImageIndex = 0
@@ -118,14 +123,8 @@ struct ReceiptDetailView: View {
                                 TabView(selection: $currentImageIndex) {
                                     // Display images from image_urls array
                                     ForEach(0..<(receipt.image_urls.isEmpty ? 1 : receipt.image_urls.count), id: \.self) { index in
-                                        let url = URL(string: receipt.image_urls.isEmpty ? receipt.image_url : receipt.image_urls[index])
-                                        AsyncImage(url: url) { phase in
-                                            switch phase {
-                                            case .empty:
-                                                ProgressView()
-                                                    .frame(height: 200)
-                                                    .transition(.opacity)
-                                            case .success(let image):
+                                        let urlString = receipt.image_urls.isEmpty ? receipt.image_url : receipt.image_urls[index]
+                                        CustomAsyncImage(urlString: urlString) { image in
                                                 ZStack {
                                                     image.resizable()
                                                         .aspectRatio(contentMode: .fit)
@@ -265,26 +264,10 @@ struct ReceiptDetailView: View {
                                                         }
                                                     }
                                                 }
-                                            case .failure:
-                                                ZStack {
-                                                    RoundedRectangle(cornerRadius: 16)
-                                                        .fill(Color.red.opacity(0.1))
-                                                        .frame(height: 120)
-
-                                                    VStack {
-                                                        Image(systemName: "exclamationmark.triangle")
-                                                            .font(.system(size: 24))
-                                                            .foregroundColor(.red.opacity(0.8))
-
-                                                        Text("Failed to load receipt image")
-                                                            .font(.instrumentSans(size: 14))
-                                                            .foregroundColor(.secondary)
-                                                    }
-                                                }
+                                        } placeholder: {
+                                            ProgressView()
+                                                .frame(height: 200)
                                                 .transition(.opacity)
-                                            @unknown default:
-                                                EmptyView()
-                                            }
                                         }
                                         .tag(index)
                                     }
@@ -353,9 +336,30 @@ struct ReceiptDetailView: View {
                                     Text("Receipt Total")
                                         .font(.instrumentSans(size: 14))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-                                    Text("\(getCurrencySymbol())\(receipt.total_amount, specifier: "%.2f")")
+
+                                    // Original currency amount
+                                    Text(currencyManager.formatAmount(receipt.total_amount, currencyCode: receipt.currency))
                                         .font(.spaceGrotesk(size: 32, weight: .bold))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
+
+                                    // Only show conversion if different from receipt currency
+                                    // and the amount is not zero
+                                    if receipt.currency != currencyManager.preferredCurrency && receipt.total_amount != 0 {
+                                        HStack(spacing: 4) {
+                                            Text("≈")
+                                                .font(.instrumentSans(size: 14))
+                                                .foregroundColor(.secondary)
+
+                                            Text(currencyManager.formatAmount(
+                                                currencyManager.convertAmountSync(receipt.total_amount,
+                                                                               from: receipt.currency,
+                                                                               to: currencyManager.preferredCurrency),
+                                                currencyCode: currencyManager.preferredCurrency))
+                                                .font(.instrumentSans(size: 16, weight: .medium))
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(.top, 2)
+                                    }
                                 }
 
                                 Spacer()
@@ -364,9 +368,29 @@ struct ReceiptDetailView: View {
                                     Text("Tax")
                                         .font(.instrumentSans(size: 14))
                                         .foregroundColor(.secondary)
-                                    Text("\(getCurrencySymbol())\(receipt.total_tax, specifier: "%.2f")")
+
+                                    // Original currency tax
+                                    Text(currencyManager.formatAmount(receipt.total_tax, currencyCode: receipt.currency))
                                         .font(.spaceGrotesk(size: 22, weight: .bold))
                                         .foregroundColor(.secondary)
+
+                                    // Only show conversion if different from receipt currency
+                                    // and the tax amount is not zero
+                                    if receipt.currency != currencyManager.preferredCurrency && receipt.total_tax != 0 {
+                                        HStack(spacing: 4) {
+                                            Text("≈")
+                                                .font(.instrumentSans(size: 12))
+                                                .foregroundColor(.secondary.opacity(0.7))
+
+                                            Text(currencyManager.formatAmount(
+                                                currencyManager.convertAmountSync(receipt.total_tax,
+                                                                               from: receipt.currency,
+                                                                               to: currencyManager.preferredCurrency),
+                                                currencyCode: currencyManager.preferredCurrency))
+                                                .font(.instrumentSans(size: 14))
+                                                .foregroundColor(.secondary.opacity(0.7))
+                                        }
+                                    }
                                 }
                             }
 
@@ -377,10 +401,31 @@ struct ReceiptDetailView: View {
                                         Text("Original Price")
                                             .font(.instrumentSans(size: 14))
                                             .foregroundColor(.secondary)
-                                        Text("\(getCurrencySymbol())\(receipt.originalPrice, specifier: "%.2f")")
+
+                                        // Original currency price
+                                        Text(currencyManager.formatAmount(receipt.originalPrice, currencyCode: receipt.currency))
                                             .font(.spaceGrotesk(size: 24, weight: .bold))
                                             .foregroundColor(.secondary)
                                             .strikethrough(true, color: .red.opacity(0.7))
+
+                                        // Only show conversion if different from receipt currency
+                                        // and the original price is not zero
+                                        if receipt.currency != currencyManager.preferredCurrency && receipt.originalPrice != 0 {
+                                            HStack(spacing: 4) {
+                                                Text("≈")
+                                                    .font(.instrumentSans(size: 12))
+                                                    .foregroundColor(.secondary.opacity(0.7))
+
+                                                Text(currencyManager.formatAmount(
+                                                    currencyManager.convertAmountSync(receipt.originalPrice,
+                                                                                   from: receipt.currency,
+                                                                                   to: currencyManager.preferredCurrency),
+                                                    currencyCode: currencyManager.preferredCurrency))
+                                                    .font(.instrumentSans(size: 14))
+                                                    .foregroundColor(.secondary.opacity(0.7))
+                                                    .strikethrough(true, color: .red.opacity(0.5))
+                                            }
+                                        }
                                     }
 
                                     Spacer()
@@ -389,9 +434,29 @@ struct ReceiptDetailView: View {
                                         Text("Savings")
                                             .font(.instrumentSans(size: 14))
                                             .foregroundColor(.green)
-                                        Text("\(getCurrencySymbol())\(receipt.savings, specifier: "%.2f")")
+
+                                        // Original currency savings
+                                        Text(currencyManager.formatAmount(receipt.savings, currencyCode: receipt.currency))
                                             .font(.spaceGrotesk(size: 18, weight: .bold))
                                             .foregroundColor(.green)
+
+                                        // Only show conversion if different from receipt currency
+                                        // and the savings amount is not zero
+                                        if receipt.currency != currencyManager.preferredCurrency && receipt.savings != 0 {
+                                            HStack(spacing: 4) {
+                                                Text("≈")
+                                                    .font(.instrumentSans(size: 12))
+                                                    .foregroundColor(.green.opacity(0.7))
+
+                                                Text(currencyManager.formatAmount(
+                                                    currencyManager.convertAmountSync(receipt.savings,
+                                                                                   from: receipt.currency,
+                                                                                   to: currencyManager.preferredCurrency),
+                                                    currencyCode: currencyManager.preferredCurrency))
+                                                    .font(.instrumentSans(size: 14))
+                                                    .foregroundColor(.green.opacity(0.7))
+                                            }
+                                        }
                                     }
                                 }
                                 .padding(.top, 4)
@@ -417,12 +482,54 @@ struct ReceiptDetailView: View {
                             )
                             .transition(.move(edge: .leading))
 
-                            IconDetailView(
-                                icon: "dollarsign.circle.fill",
-                                title: "Currency",
-                                detail: receipt.currency,
-                                color: secondaryLogoColor
-                            )
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "dollarsign.circle.fill")
+                                        .foregroundColor(secondaryLogoColor)
+
+                                    Text("Currency")
+                                        .font(.instrumentSans(size: 14))
+                                        .foregroundColor(.secondary)
+                                }
+
+                                // Show original currency
+                                Text(receipt.currency)
+                                    .font(.instrumentSans(size: 16))
+                                    .foregroundColor(.primary)
+
+                                // Show conversion info if different from preferred currency
+                                if receipt.currency != currencyManager.preferredCurrency {
+                                    HStack(spacing: 4) {
+                                        Text("Converted to")
+                                            .font(.instrumentSans(size: 12))
+                                            .foregroundColor(.secondary)
+
+                                        Text(currencyManager.preferredCurrency)
+                                            .font(.instrumentSans(size: 12, weight: .medium))
+                                            .foregroundColor(.blue)
+                                    }
+
+                                    // Show last updated timestamp with refresh button
+                                    HStack {
+                                        Text("Rates: \(currencyManager.getLastUpdatedString())")
+                                            .font(.instrumentSans(size: 10))
+                                            .foregroundColor(.secondary.opacity(0.7))
+
+                                        Spacer()
+
+                                        Button {
+                                            refreshExchangeRates()
+                                        } label: {
+                                            Image(systemName: isRefreshingRates ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
+                                                .foregroundColor(.blue)
+                                                .font(.system(size: 14))
+                                                .rotationEffect(Angle(degrees: isRefreshingRates ? 360 : 0))
+                                                .animation(isRefreshingRates ? Animation.linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshingRates)
+                                        }
+                                        .disabled(isRefreshingRates)
+                                    }
+                                }
+                            }
                             .transition(.move(edge: .bottom))
                         }
                         .animation(.spring(response: 0.6, dampingFraction: 0.7), value: animateContent)
@@ -466,7 +573,7 @@ struct ReceiptDetailView: View {
                             .padding(.bottom, 5)
 
                         ForEach(Array(receipt.items.enumerated()), id: \.element.id) { index, item in
-                            ReceiptItemCard(item: item, logoColors: logoColors.isEmpty ? [.gray] : logoColors, index: index, currencySymbol: getCurrencySymbol())
+                            ReceiptItemCard(item: item, logoColors: logoColors.isEmpty ? [.gray] : logoColors, index: index, currencyCode: receipt.currency)
                                 .transition(.asymmetric(
                                     insertion: .opacity.combined(with: .scale(scale: 0.9)).combined(with: .offset(y: 20)),
                                     removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -519,65 +626,66 @@ struct ReceiptDetailView: View {
             }
             .environmentObject(appState)
         }
+        .alert(isPresented: $showRateRefreshAlert) {
+            Alert(
+                title: Text("Exchange Rates Updated"),
+                message: Text(currencyManager.conversionError == nil ?
+                              "Exchange rates have been refreshed successfully." :
+                              "Could not refresh exchange rates. Using cached rates."),
+                dismissButton: .default(Text("OK"))
+            )
+        }
         // Fullscreen image overlay
         .fullScreenCover(isPresented: $isFullscreen) {
             ZStack {
                 Color.black.ignoresSafeArea()
 
                 GeometryReader { geometry in
-                    let url = URL(string: receipt.image_urls.isEmpty ? receipt.image_url : receipt.image_urls[currentImageIndex])
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .empty:
-                            ProgressView()
-                                .frame(width: geometry.size.width, height: geometry.size.height)
-                        case .success(let image):
-                            image.resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: geometry.size.width, height: geometry.size.height)
-                                .scaleEffect(zoomScale)
-                                .offset(dragOffset)
-                                .gesture(
-                                    // Tap gesture for zooming
-                                    TapGesture(count: 2).onEnded { _ in
-                                        withAnimation(.spring()) {
-                                            if zoomScale > 1.0 {
-                                                zoomScale = 1.0
-                                                dragOffset = .zero
-                                                lastDragValue = .zero
-                                            } else {
-                                                zoomScale = 3.0
-                                            }
+                    let urlString = receipt.image_urls.isEmpty ? receipt.image_url : receipt.image_urls[currentImageIndex]
+                    CustomAsyncImage(urlString: urlString) { image in
+                        image.resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .scaleEffect(zoomScale)
+                            .offset(dragOffset)
+                            .gesture(
+                                // Tap gesture for zooming
+                                TapGesture(count: 2).onEnded { _ in
+                                    withAnimation(.spring()) {
+                                        if zoomScale > 1.0 {
+                                            zoomScale = 1.0
+                                            dragOffset = .zero
+                                            lastDragValue = .zero
+                                        } else {
+                                            zoomScale = 3.0
                                         }
                                     }
-                                    // Drag gesture for panning
-                                    .simultaneously(with:
-                                        DragGesture()
-                                            .onChanged { value in
-                                                dragOffset = CGSize(
-                                                    width: lastDragValue.width + value.translation.width,
-                                                    height: lastDragValue.height + value.translation.height
-                                                )
-                                            }
-                                            .onEnded { value in
-                                                lastDragValue = dragOffset
-                                            }
-                                    )
-                                    // Magnification gesture for pinch zooming
-                                    .simultaneously(with:
-                                        MagnificationGesture()
-                                            .onChanged { value in
-                                                let newScale = zoomScale * value
-                                                zoomScale = min(max(newScale, minZoom), maxZoom)
-                                            }
-                                    )
+                                }
+                                // Drag gesture for panning
+                                .simultaneously(with:
+                                    DragGesture()
+                                        .onChanged { value in
+                                            dragOffset = CGSize(
+                                                width: lastDragValue.width + value.translation.width,
+                                                height: lastDragValue.height + value.translation.height
+                                            )
+                                        }
+                                        .onEnded { value in
+                                            lastDragValue = dragOffset
+                                        }
                                 )
-                        case .failure:
-                            Text("Failed to load image")
-                                .foregroundColor(.white)
-                        @unknown default:
-                            EmptyView()
-                        }
+                                // Magnification gesture for pinch zooming
+                                .simultaneously(with:
+                                    MagnificationGesture()
+                                        .onChanged { value in
+                                            let newScale = zoomScale * value
+                                            zoomScale = min(max(newScale, minZoom), maxZoom)
+                                        }
+                                )
+                            )
+                    } placeholder: {
+                        ProgressView()
+                            .frame(width: geometry.size.width, height: geometry.size.height)
                     }
                 }
 
@@ -668,10 +776,14 @@ struct ReceiptDetailView: View {
         }
         .onAppear {
             // Retrieve logo from cache first; if not, fetch it.
-            if let cached = logoCache.logoCache[receipt.store_name.lowercased()] {
+            let storeKey = receipt.store_name.lowercased()
+
+            if let cached = logoCache.logoCache[storeKey] {
+                // If we have a cached entry (even if the image is nil)
                 logoImage = cached.image
                 logoColors = cached.colors
-            } else {
+            } else if LogoCache.shared.shouldAttemptFetch(for: storeKey) {
+                // Only attempt to fetch if we haven't recently failed
                 Task {
                     let (fetchedImage, fetchedColors) = await LogoService.shared.fetchLogo(for: receipt.store_name)
                     await MainActor.run {
@@ -737,28 +849,24 @@ struct ReceiptDetailView: View {
 
     // Helper function to get the appropriate currency symbol
     private func getCurrencySymbol() -> String {
-        let currencySymbols = [
-            "USD": "$",
-            "CAD": "CA$",
-            "EUR": "€",
-            "GBP": "£",
-            "AUD": "A$",
-            "INR": "₹",
-            "JPY": "¥",
-            "CNY": "¥",
-            "RUB": "₽",
-            "BRL": "R$",
-            "MXN": "Mex$",
-            "CHF": "Fr.",
-            "SGD": "S$",
-            "HKD": "HK$",
-            "SEK": "kr",
-            "NOK": "kr",
-            "DKK": "kr",
-            "NZD": "NZ$"
-        ]
+        return currencyManager.getCurrencySymbol(for: receipt.currency)
+    }
 
-        return currencySymbols[receipt.currency] ?? "$"
+    // Function to refresh exchange rates
+    private func refreshExchangeRates() {
+        // Set loading state
+        isRefreshingRates = true
+
+        // Refresh rates asynchronously
+        Task {
+            await currencyManager.refreshExchangeRates()
+
+            // Update UI on main thread
+            await MainActor.run {
+                isRefreshingRates = false
+                showRateRefreshAlert = true
+            }
+        }
     }
 }
 

@@ -7,11 +7,95 @@
 
 import SwiftUI
 import Supabase
+import Foundation
+import UIKit
+
+// Extension to convert SwiftUI Color to UIColor
+extension Color {
+    func uiColor() -> UIColor {
+        if #available(iOS 14.0, *) {
+            return UIColor(self)
+        } else {
+            // Fallback for iOS 13
+            let scanner = Scanner(string: self.description.trimmingCharacters(in: CharacterSet.alphanumerics.inverted))
+            var hexNumber: UInt64 = 0
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
+
+            // Default to a medium blue if we can't parse the color
+            if scanner.scanHexInt64(&hexNumber) {
+                r = CGFloat((hexNumber & 0xff000000) >> 24) / 255
+                g = CGFloat((hexNumber & 0x00ff0000) >> 16) / 255
+                b = CGFloat((hexNumber & 0x0000ff00) >> 8) / 255
+                a = CGFloat(hexNumber & 0x000000ff) / 255
+            }
+
+            return UIColor(red: r, green: g, blue: b, alpha: a)
+        }
+    }
+}
 
 // Logo cache to prevent unnecessary API calls
 class LogoCache: ObservableObject {
     static let shared = LogoCache()
-    @Published var logoCache: [String: (image: UIImage, colors: [Color])] = [:]
+    @Published var logoCache: [String: (image: UIImage?, colors: [Color])] = [:]
+    @Published var failedAttempts: [String: Date] = [:] // Track failed attempts with timestamps
+    @Published var storeNameMappings: [String: String] = [:] // Map variations of store names to canonical names
+
+    // Time before retrying a failed logo fetch (24 hours)
+    let retryInterval: TimeInterval = 86400
+
+    // UserDefaults keys
+    private let logoCacheKey = "logo_cache_mappings"
+
+    init() {
+        loadCacheMappings()
+    }
+
+    // Save cache mappings to UserDefaults
+    func saveCacheMappings() {
+        let mappings = storeNameMappings
+        UserDefaults.standard.set(mappings, forKey: logoCacheKey)
+    }
+
+    // Load cache mappings from UserDefaults
+    func loadCacheMappings() {
+        if let mappings = UserDefaults.standard.dictionary(forKey: logoCacheKey) as? [String: String] {
+            storeNameMappings = mappings
+        }
+    }
+
+    // Normalize store name for consistent caching
+    func normalizeStoreName(_ name: String) -> String {
+        let normalizedName = name.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "'s", with: "s")  // Remove apostrophes in possessives
+            .replacingOccurrences(of: "&", with: "and") // Replace & with and
+
+        // Check if we have a mapping for this name variation
+        if let mappedName = storeNameMappings[normalizedName] {
+            return mappedName
+        }
+
+        return normalizedName
+    }
+
+    // Add a mapping between name variations
+    func addNameMapping(from variation: String, to canonical: String) {
+        let normalizedVariation = variation.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCanonical = canonical.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+        storeNameMappings[normalizedVariation] = normalizedCanonical
+        saveCacheMappings()
+    }
+
+    func shouldAttemptFetch(for storeName: String) -> Bool {
+        let key = normalizeStoreName(storeName)
+        // If we have a failed attempt, check if enough time has passed to retry
+        if let failedDate = failedAttempts[key] {
+            return Date().timeIntervalSince(failedDate) > retryInterval
+        }
+        return true
+    }
 }
 
 // API client for Logo.dev
@@ -19,8 +103,50 @@ class LogoService {
     static let shared = LogoService()
     private let publicKey = "pk_EB5BNaRARdeXj64ti60xGQ"
 
+    // Common store logos - hardcoded for reliability
+    private let knownStoreLogos: [String: (UIImage, [Color])] = [:]
+    // These would be populated with actual store logos in a real implementation
+    // For now, we'll rely on the API but with better fallbacks
+
+    // Store name corrections for common misspellings or variations
+    private let storeNameCorrections: [String: String] = [
+        "walmart": "walmart",
+        "wal-mart": "walmart",
+        "wal mart": "walmart",
+        "target": "target",
+        "costco": "costco",
+        "costco wholesale": "costco",
+        "amazon": "amazon",
+        "amazon.com": "amazon",
+        "starbucks": "starbucks",
+        "mcdonalds": "mcdonalds",
+        "mcdonald's": "mcdonalds",
+        "safeway": "safeway",
+        "kroger": "kroger",
+        "whole foods": "whole foods market",
+        "whole foods market": "whole foods market",
+        "trader joe's": "trader joes",
+        "trader joes": "trader joes",
+        "best buy": "best buy",
+        "home depot": "home depot",
+        "the home depot": "home depot",
+        "lowes": "lowes",
+        "lowe's": "lowes"
+    ]
+
     // Default colors to use when no logo is available
-    private let defaultColors: [Color] = [.gray, Color(hex: "555555"), Color(hex: "777777")]
+    private let defaultColors: [Color] = [.blue, Color(hex: "3B82F6"), Color(hex: "1D4ED8")]
+
+    // Store category colors
+    private let categoryColors: [String: [Color]] = [
+        "grocery": [.green, Color(hex: "22C55E"), Color(hex: "16A34A")],
+        "restaurant": [.red, Color(hex: "EF4444"), Color(hex: "DC2626")],
+        "retail": [.blue, Color(hex: "3B82F6"), Color(hex: "1D4ED8")],
+        "electronics": [.purple, Color(hex: "A855F7"), Color(hex: "7E22CE")],
+        "gas": [.orange, Color(hex: "F97316"), Color(hex: "EA580C")],
+        "travel": [.teal, Color(hex: "14B8A6"), Color(hex: "0D9488")],
+        "entertainment": [.pink, Color(hex: "EC4899"), Color(hex: "DB2777")]
+    ]
 
     func fetchLogo(for storeName: String) async -> (UIImage?, [Color]) {
         // Handle empty store names
@@ -28,38 +154,114 @@ class LogoService {
             return (nil, defaultColors)
         }
 
+        let cache = LogoCache.shared
+        let normalizedName = cache.normalizeStoreName(storeName)
+
+        // Check for known store name corrections
+        if let correctedName = checkForKnownStore(normalizedName) {
+            // Add mapping for future reference
+            cache.addNameMapping(from: normalizedName, to: correctedName)
+
+            // Check if we have the corrected name in cache
+            if let cached = cache.logoCache[correctedName] {
+                return (cached.image, cached.colors)
+            }
+        }
+
         // Check cache first
-        if let cached = LogoCache.shared.logoCache[storeName.lowercased()] {
+        if let cached = cache.logoCache[normalizedName] {
             return (cached.image, cached.colors)
         }
 
+        // Check if we should attempt to fetch (not a recent failure)
+        if !cache.shouldAttemptFetch(for: normalizedName) {
+            print("Skipping logo fetch for \(storeName) due to recent failure")
+            return (nil, getCategoryColors(for: storeName))
+        }
+
+        // Try to fetch from API
+        return await fetchLogoFromAPI(storeName: storeName, normalizedName: normalizedName)
+    }
+
+    private func checkForKnownStore(_ normalizedName: String) -> String? {
+        // Check for exact matches first
+        if let correctedName = storeNameCorrections[normalizedName] {
+            return correctedName
+        }
+
+        // Check for partial matches
+        for (key, value) in storeNameCorrections {
+            if normalizedName.contains(key) {
+                return value
+            }
+        }
+
+        return nil
+    }
+
+    // Made public so it can be accessed from MapMarkerView
+    func getCategoryColors(for storeName: String) -> [Color] {
+        let lowercaseName = storeName.lowercased()
+
+        // Try to determine store category from name
+        if lowercaseName.contains("grocery") || lowercaseName.contains("market") ||
+           lowercaseName.contains("food") || lowercaseName.contains("supermarket") {
+            return categoryColors["grocery"] ?? defaultColors
+        } else if lowercaseName.contains("restaurant") || lowercaseName.contains("cafe") ||
+                  lowercaseName.contains("bar") || lowercaseName.contains("grill") {
+            return categoryColors["restaurant"] ?? defaultColors
+        } else if lowercaseName.contains("electronics") || lowercaseName.contains("tech") {
+            return categoryColors["electronics"] ?? defaultColors
+        } else if lowercaseName.contains("gas") || lowercaseName.contains("fuel") ||
+                  lowercaseName.contains("petrol") {
+            return categoryColors["gas"] ?? defaultColors
+        } else if lowercaseName.contains("travel") || lowercaseName.contains("hotel") ||
+                  lowercaseName.contains("air") {
+            return categoryColors["travel"] ?? defaultColors
+        } else if lowercaseName.contains("entertainment") || lowercaseName.contains("cinema") ||
+                  lowercaseName.contains("theater") {
+            return categoryColors["entertainment"] ?? defaultColors
+        }
+
+        return defaultColors
+    }
+
+    private func fetchLogoFromAPI(storeName: String, normalizedName: String) async -> (UIImage?, [Color]) {
         let formattedName = storeName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? storeName
         let urlString = "https://api.logo.dev/search?q=\(formattedName)"
 
         guard let url = URL(string: urlString) else {
             print("Invalid URL for logo fetch: \(urlString)")
-            return (nil, defaultColors)
+            cacheFailedAttempt(for: normalizedName)
+            return (nil, getCategoryColors(for: storeName))
         }
 
         var request = URLRequest(url: url)
         request.addValue("Bearer \(secretKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 15 // Set a reasonable timeout
+        request.timeoutInterval = 30 // Increased timeout to 30 seconds
 
         // Implement retry logic
-        let maxRetries = 1
+        let maxRetries = 2 // Increased max retries
         var retryCount = 0
 
         while retryCount <= maxRetries {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
+                // Create a task with a timeout
+                let task = Task {
+                    try await URLSession.shared.data(for: request)
+                }
+
+                // Wait for the task with a timeout
+                let (data, response) = try await task.value
 
                 guard let httpResponse = response as? HTTPURLResponse else {
                     print("Error: Not an HTTP response")
                     retryCount += 1
                     if retryCount > maxRetries {
+                        cacheFailedAttempt(for: normalizedName)
                         return (nil, defaultColors)
                     }
-                    try await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 second before retry
+                    try await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
                     continue
                 }
 
@@ -67,9 +269,10 @@ class LogoService {
                     print("Error response: HTTP \(httpResponse.statusCode)")
                     retryCount += 1
                     if retryCount > maxRetries {
+                        cacheFailedAttempt(for: normalizedName)
                         return (nil, defaultColors)
                     }
-                    try await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 second before retry
+                    try await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
                     continue
                 }
 
@@ -82,31 +285,52 @@ class LogoService {
                           let logoUrlString = firstResult["logo_url"] as? String,
                           let logoUrl = URL(string: logoUrlString) else {
                         print("Failed to parse logo JSON response")
+                        cacheFailedAttempt(for: normalizedName)
                         return (nil, defaultColors)
                     }
 
-                    // Fetch the logo image with timeout
-                    let logoRequest = URLRequest(url: logoUrl, timeoutInterval: 10)
-                    let (imageData, _) = try await URLSession.shared.data(for: logoRequest)
+                    // Fetch the logo image with increased timeout
+                    let logoRequest = URLRequest(url: logoUrl, timeoutInterval: 20)
 
-                    guard let image = UIImage(data: imageData) else {
-                        print("Failed to create image from data")
-                        return (nil, defaultColors)
+                    do {
+                        let logoTask = Task {
+                            try await URLSession.shared.data(for: logoRequest)
+                        }
+
+                        let (imageData, _) = try await logoTask.value
+
+                        guard let image = UIImage(data: imageData) else {
+                            print("Failed to create image from data")
+                            cacheFailedAttempt(for: normalizedName)
+                            return (nil, defaultColors)
+                        }
+
+                        let colors = image.dominantColors(count: 3)
+                        let finalColors = colors.isEmpty ? defaultColors : colors
+
+                        // Cache the successful result on the main thread
+                        await MainActor.run {
+                            LogoCache.shared.logoCache[normalizedName] = (image, finalColors)
+                            // Remove from failed attempts if it was there
+                            LogoCache.shared.failedAttempts.removeValue(forKey: normalizedName)
+                        }
+
+                        return (image, finalColors)
+                    } catch {
+                        print("Error fetching logo image: \(error.localizedDescription)")
+                        retryCount += 1
+                        if retryCount > maxRetries {
+                            cacheFailedAttempt(for: normalizedName)
+                            return (nil, defaultColors)
+                        }
+                        try await Task.sleep(nanoseconds: 1_000_000_000)
+                        continue
                     }
-
-                    let colors = image.dominantColors(count: 3)
-                    let finalColors = colors.isEmpty ? defaultColors : colors
-
-                    // Cache the result on the main thread
-                    await MainActor.run {
-                        LogoCache.shared.logoCache[storeName.lowercased()] = (image, finalColors)
-                    }
-
-                    return (image, finalColors)
                 } catch {
                     print("JSON parsing error: \(error)")
                     retryCount += 1
                     if retryCount > maxRetries {
+                        cacheFailedAttempt(for: normalizedName)
                         return (nil, defaultColors)
                     }
                     continue
@@ -115,13 +339,59 @@ class LogoService {
                 print("Network error fetching logo: \(error)")
                 retryCount += 1
                 if retryCount > maxRetries {
+                    cacheFailedAttempt(for: normalizedName)
                     return (nil, defaultColors)
                 }
-                try? await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 second before retry
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
             }
         }
 
+        cacheFailedAttempt(for: normalizedName)
         return (nil, defaultColors)
+    }
+
+    // Helper method to cache a failed attempt
+    private func cacheFailedAttempt(for storeKey: String) {
+        Task { @MainActor in
+            // Cache a nil image with category-specific colors
+            let colors = self.getCategoryColors(for: storeKey)
+            LogoCache.shared.logoCache[storeKey] = (nil, colors)
+            // Record the failure timestamp
+            LogoCache.shared.failedAttempts[storeKey] = Date()
+        }
+    }
+
+    // Generate a placeholder image for a store
+    func generatePlaceholderImage(for storeName: String, size: CGSize = CGSize(width: 100, height: 100)) -> UIImage {
+        let cache = LogoCache.shared
+        let _ = cache.normalizeStoreName(storeName)
+        let colors = getCategoryColors(for: storeName)
+
+        // Create a renderer with the specified size
+        let renderer = UIGraphicsImageRenderer(size: size)
+
+        return renderer.image { context in
+            // Fill background with the primary color
+            colors.first?.uiColor().setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+
+            // Draw the first letter of the store name
+            let letter = String(storeName.prefix(1)).uppercased()
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: size.width * 0.5, weight: .bold),
+                .foregroundColor: UIColor.white
+            ]
+
+            let textSize = letter.size(withAttributes: attributes)
+            let textRect = CGRect(
+                x: (size.width - textSize.width) / 2,
+                y: (size.height - textSize.height) / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+
+            letter.draw(in: textRect, withAttributes: attributes)
+        }
     }
 }
 
@@ -160,10 +430,14 @@ struct HistoryView: View {
             // Get receipts from local storage
             let localReceipts = LocalStorageService.shared.getReceipts()
 
-            // Pre-fetch logos for receipts
+            // Pre-fetch logos for receipts, but only if they're not already cached
             for receipt in localReceipts {
-                Task {
-                    _ = await LogoService.shared.fetchLogo(for: receipt.store_name)
+                let storeKey = receipt.store_name.lowercased()
+                if !LogoCache.shared.logoCache.keys.contains(storeKey) &&
+                   LogoCache.shared.shouldAttemptFetch(for: storeKey) {
+                    Task {
+                        _ = await LogoService.shared.fetchLogo(for: receipt.store_name)
+                    }
                 }
             }
 
@@ -203,10 +477,14 @@ struct HistoryView: View {
             let fetchedReceipts = try decoder.decode([Receipt].self, from: response.data)
             print("Decoded Receipts: \(fetchedReceipts.count)")
 
-            // Optionally pre-fetch logos for receipts here
+            // Pre-fetch logos for receipts, but only if they're not already cached
             for receipt in fetchedReceipts {
-                Task {
-                    _ = await LogoService.shared.fetchLogo(for: receipt.store_name)
+                let storeKey = receipt.store_name.lowercased()
+                if !LogoCache.shared.logoCache.keys.contains(storeKey) &&
+                   LogoCache.shared.shouldAttemptFetch(for: storeKey) {
+                    Task {
+                        _ = await LogoService.shared.fetchLogo(for: receipt.store_name)
+                    }
                 }
             }
 
@@ -479,6 +757,7 @@ struct EnhancedReceiptCard: View {
     @State private var isHovered = false
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
+    @StateObject private var currencyManager = CurrencyManager.shared
     // Callback for when deletion is complete
     var onDelete: ((Receipt) -> Void)?
 
@@ -554,10 +833,14 @@ struct EnhancedReceiptCard: View {
 
                         // Show total amount with savings indicator if there are savings
                         HStack(spacing: 4) {
-                            Text("$\(receipt.total_amount, specifier: "%.2f")")
+                            Text(currencyManager.formatAmount(receipt.total_amount, currencyCode: receipt.currency))
                                 .font(.spaceGrotesk(size: 20, weight: .bold))
                                 .foregroundColor(receipt.savings > 0 ? .green : primaryLogoColor)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6) // Shrink text to fit if needed
+                                .fixedSize(horizontal: false, vertical: true) // Allow horizontal shrinking
 
+                            // Only show savings tag if savings is greater than 0
                             if receipt.savings > 0 {
                                 Image(systemName: "tag.fill")
                                     .font(.system(size: 12))
@@ -662,13 +945,13 @@ struct EnhancedReceiptCard: View {
                                         HStack(spacing: 2) {
                                             // Only show strikethrough for actual discounts with originalPrice > 0
                                             if let originalPrice = item.originalPrice, originalPrice > 0, originalPrice != item.price {
-                                                Text("$\(originalPrice, specifier: "%.2f")")
+                                                Text(currencyManager.formatAmount(originalPrice, currencyCode: receipt.currency))
                                                     .font(.instrumentSans(size: 10))
                                                     .foregroundColor(.secondary)
                                                     .strikethrough(true, color: .green.opacity(0.7))
                                             }
 
-                                            Text("$\(item.price, specifier: "%.2f")")
+                                            Text(currencyManager.formatAmount(item.price, currencyCode: receipt.currency))
                                                 .font(.instrumentSans(size: 13, weight: .medium))
                                                 .foregroundColor(getItemColor(item: item, index: index))
                                         }
@@ -881,11 +1164,23 @@ struct EnhancedReceiptCard: View {
     }
 
     private func loadLogo() {
-        Task {
-            let (image, colors) = await LogoService.shared.fetchLogo(for: receipt.store_name)
-            await MainActor.run {
-                logoImage = image
-                logoColors = colors
+        let storeKey = receipt.store_name.lowercased()
+
+        // Check cache first
+        if let cached = LogoCache.shared.logoCache[storeKey] {
+            logoImage = cached.image
+            logoColors = cached.colors
+            return
+        }
+
+        // Only attempt to fetch if we haven't recently failed
+        if LogoCache.shared.shouldAttemptFetch(for: storeKey) {
+            Task {
+                let (image, colors) = await LogoService.shared.fetchLogo(for: receipt.store_name)
+                await MainActor.run {
+                    logoImage = image
+                    logoColors = colors
+                }
             }
         }
     }
@@ -929,6 +1224,7 @@ struct ItemCard: View {
     let index: Int
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
+    @StateObject private var currencyManager = CurrencyManager.shared
 
     var body: some View {
         VStack(spacing: 8) {
@@ -976,15 +1272,19 @@ struct ItemCard: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     // Only show strikethrough for actual discounts with originalPrice > 0
                     if let originalPrice = item.originalPrice, originalPrice > 0, originalPrice != item.price {
-                        Text("$\(originalPrice, specifier: "%.2f")")
+                        Text(currencyManager.formatAmount(originalPrice, currencyCode: currencyManager.preferredCurrency))
                             .font(.spaceGrotesk(size: 14))
                             .foregroundColor(.secondary)
                             .strikethrough(true, color: .green.opacity(0.7))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     }
 
-                    Text("$\(item.price, specifier: "%.2f")")
+                    Text(currencyManager.formatAmount(item.price, currencyCode: currencyManager.preferredCurrency))
                         .font(.spaceGrotesk(size: 18, weight: .bold))
                         .foregroundColor(priceColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7) // Shrink text to fit if needed
                 }
             }
         }

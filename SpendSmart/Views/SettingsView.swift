@@ -8,11 +8,17 @@
 import SwiftUI
 import Supabase
 
+// Import CurrencyManager
+@_exported import Foundation
+
 struct SettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     // Environment object to handle app-wide state
     @EnvironmentObject var appState: AppState
+
+    // Observe the CurrencyManager to update UI when currency changes
+    @ObservedObject private var currencyManager = CurrencyManager.shared
 
     // State for alerts
     @State private var showingSignOutConfirmation = false
@@ -20,11 +26,16 @@ struct SettingsView: View {
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
 
-    var body: some View {
+    // Version update state
+    @State private var isCheckingForUpdates = false
+    @State private var showUpdateCheckResult = false
+    @State private var updateCheckMessage = ""
 
+    var body: some View {
         ZStack {
             BackgroundGradientView()
-        List {
+
+            List {
             // Account Section
             Section(header: SectionHeaderView(title: "Account", icon: "person.circle.fill")) {
                 if appState.isGuestUser {
@@ -135,20 +146,136 @@ struct SettingsView: View {
                 }
             }
 
+            // Preferences section
+            Section(header: SectionHeaderView(title: "Preferences", icon: "gearshape.fill")) {
+                NavigationLink(destination: CurrencySettingsView()) {
+                    HStack {
+                        Text("Currency")
+                            .font(.instrumentSans(size: 16))
+
+                        Spacer()
+
+                        Text(currencyManager.preferredCurrency)
+                            .font(.instrumentSans(size: 16))
+                            .foregroundColor(.gray)
+                    }
+                }
+
+
+            }
+
             // Other section
             Section(header: SectionHeaderView(title: "Other", icon: "ellipsis.circle.fill")) {
                 NavigationLink(destination: CreditsView()) {
                     Text("Credits")
                         .font(.instrumentSans(size: 16))
                 }
+
+                // Check for updates button
+                Button(action: {
+                    checkForUpdates()
+                }) {
+                    HStack {
+                        Text("Check for Updates")
+                            .font(.instrumentSans(size: 16))
+                            .foregroundColor(isCheckingForUpdates ? .gray : .primary)
+
+                        Spacer()
+
+                        if isCheckingForUpdates {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "arrow.down.circle")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                }
+                .disabled(isCheckingForUpdates)
+
+                // Test version update alert
+                Button(action: {
+                    // Simulate a version update available
+                    appState.availableVersion = "1.2"
+                    appState.releaseNotes = "• Improved performance and stability\n• New version update notification system\n• Enhanced user interface\n• Bug fixes and optimizations"
+                    appState.showVersionUpdateAlert = true
+                }) {
+                    HStack {
+                        Text("Test Version Update Alert")
+                            .font(.instrumentSans(size: 16))
+
+                        Spacer()
+
+                        Image(systemName: "bell.badge")
+                            .foregroundColor(.orange)
+                    }
+                }
+
+                // Temporary option to test onboarding
+                Button(action: {
+                    // Reset onboarding completion status
+                    UserDefaults.standard.set(false, forKey: "isOnboardingComplete")
+
+                    // Set first login flag to trigger onboarding
+                    appState.isFirstLogin = true
+                    appState.isOnboardingComplete = false
+                }) {
+                    HStack {
+                        Text("Replay Onboarding Flow")
+                            .font(.instrumentSans(size: 16))
+
+                        Spacer()
+
+                        Image(systemName: "arrow.clockwise.circle")
+                            .foregroundColor(.blue)
+                    }
+                }
+            }
+            }
+            .listStyle(.insetGrouped)
+            .background(colorScheme == .dark ? Color(hex: "0A0A0A") : Color(hex: "F8FAFC"))
+            .scrollContentBackground(.hidden)
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.large)
+            .alert("Update Check", isPresented: $showUpdateCheckResult) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(updateCheckMessage)
             }
         }
-        .listStyle(.insetGrouped)
-        .background(colorScheme == .dark ? Color(hex: "0A0A0A") : Color(hex: "F8FAFC"))
-        .scrollContentBackground(.hidden)
-        .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.large)
     }
+
+    private func checkForUpdates() {
+        isCheckingForUpdates = true
+
+        Task {
+            let result = await VersionUpdateManager.shared.checkForUpdates(force: true)
+
+            await MainActor.run {
+                isCheckingForUpdates = false
+
+                switch result {
+                case .updateAvailable(let versionInfo):
+                    appState.availableVersion = versionInfo.latestVersion
+                    appState.releaseNotes = versionInfo.releaseNotes ?? ""
+                    appState.showVersionUpdateAlert = true
+                case .upToDate:
+                    updateCheckMessage = "You're using the latest version of SpendSmart!"
+                    showUpdateCheckResult = true
+                case .skipped(let version):
+                    updateCheckMessage = "Version \(version) is available, but you previously chose to skip it."
+                    showUpdateCheckResult = true
+                case .remindLater(let date):
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .medium
+                    updateCheckMessage = "You chose to be reminded later. Next check: \(formatter.string(from: date))"
+                    showUpdateCheckResult = true
+                case .error(let error):
+                    updateCheckMessage = "Unable to check for updates: \(error.localizedDescription)"
+                    showUpdateCheckResult = true
+                }
+            }
+        }
     }
 
     private func signOut() {

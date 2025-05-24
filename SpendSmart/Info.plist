@@ -11,5 +11,7 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SpendSmart uses your location to show nearby stores and spending patterns on the map.</string>
 </dict>
 </plist>

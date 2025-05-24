@@ -13,6 +13,8 @@ import GoogleGenerativeAI
 import Supabase
 // Import the receipt validation service
 import Foundation
+// Import the image storage service
+import UIKit
 
 struct NewExpenseView: View {
     var onReceiptAdded: (Receipt) -> Void
@@ -494,111 +496,8 @@ struct NewExpenseView: View {
 
 
     func uploadImage(_ image: UIImage) async -> String {
-        // First, resize the image to reduce memory usage and upload time
-        let resizedImage = resizeImage(image, targetSize: CGSize(width: 1200, height: 1200))
-
-        guard let imageData = resizedImage.jpegData(compressionQuality: 0.7) else {
-            print("Failed to convert image to data")
-            return "placeholder_url"
-        }
-
-        let apiKey = imgBBAPIKey // Your imgBB API key
-        guard let url = URL(string: "https://api.imgbb.com/1/upload") else {
-            print("Invalid URL for image upload")
-            return "placeholder_url"
-        }
-
-        // Create multipart form data
-        let boundary = UUID().uuidString
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        // Set a timeout to prevent hanging
-        request.timeoutInterval = 30
-
-        var body = Data()
-
-        // Add API key
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"key\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(apiKey)\r\n".data(using: .utf8)!)
-
-        // Add image data
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"image\"; filename=\"receipt.jpg\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
-        body.append(imageData)
-        body.append("\r\n".data(using: .utf8)!)
-
-        // Close the boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-
-        request.httpBody = body
-
-        // Implement retry logic
-        let maxRetries = 2
-        var retryCount = 0
-
-        while retryCount <= maxRetries {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    print("Error: Not an HTTP response")
-                    retryCount += 1
-                    if retryCount > maxRetries {
-                        return "placeholder_url"
-                    }
-                    try await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
-                    continue
-                }
-
-                if httpResponse.statusCode != 200 {
-                    print("Error: HTTP status code \(httpResponse.statusCode)")
-                    retryCount += 1
-                    if retryCount > maxRetries {
-                        return "placeholder_url"
-                    }
-                    try await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
-                    continue
-                }
-
-                // Parse the response
-                do {
-                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let responseData = json["data"] as? [String: Any],
-                       let url = responseData["url"] as? String {
-                        print("Image uploaded successfully: \(url)")
-                        return url
-                    } else {
-                        print("Failed to parse image upload response")
-                        retryCount += 1
-                        if retryCount > maxRetries {
-                            return "placeholder_url"
-                        }
-                        continue
-                    }
-                } catch {
-                    print("JSON parsing error: \(error)")
-                    retryCount += 1
-                    if retryCount > maxRetries {
-                        return "placeholder_url"
-                    }
-                    continue
-                }
-            } catch {
-                print("Image upload error: \(error)")
-                retryCount += 1
-                if retryCount > maxRetries {
-                    return "placeholder_url"
-                }
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
-            }
-        }
-
-        return "placeholder_url"
+        // Use the ImageStorageService to handle image uploads with fallback options
+        return await ImageStorageService.shared.uploadImage(image)
     }
 
     // Helper function to resize images before upload
@@ -626,6 +525,56 @@ struct NewExpenseView: View {
         return scaledImage
     }
 
+    // This function is now handled by ImageStorageService
+    // Keeping this function signature for backward compatibility
+    private func saveImageLocally(_ image: UIImage) async -> String {
+        return await ImageStorageService.shared.uploadImage(image)
+    }
+
+    // Helper function to load an image from a URL string (supports both remote and local URLs)
+    static func loadImage(from urlString: String) async -> UIImage? {
+        // Check if it's a local URL
+        if urlString.hasPrefix("local://") {
+            // Extract the filename
+            let filename = String(urlString.dropFirst("local://".count))
+
+            // Get the documents directory
+            guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                print("Failed to access documents directory")
+                return nil
+            }
+
+            // Create a URL for the file
+            let fileURL = documentsDirectory.appendingPathComponent(filename)
+
+            do {
+                // Load the image data from the file
+                let imageData = try Data(contentsOf: fileURL)
+                return UIImage(data: imageData)
+            } catch {
+                print("Error loading local image: \(error)")
+                return nil
+            }
+        } else if urlString == "placeholder_url" {
+            // Return a placeholder image
+            return UIImage(systemName: "doc.text.image")
+        } else {
+            // It's a remote URL
+            guard let url = URL(string: urlString) else {
+                print("Invalid URL: \(urlString)")
+                return nil
+            }
+
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                return UIImage(data: data)
+            } catch {
+                print("Error loading remote image: \(error)")
+                return nil
+            }
+        }
+    }
+
 
     func extractDataFromImage(receiptImage: UIImage) async -> Receipt? {
         do {
@@ -646,6 +595,22 @@ struct NewExpenseView: View {
               * For free items (price = 0), include why they're free in discountDescription
               * For nominal pricing (e.g., $0.01), note this in discountDescription
 
+            #### **Store Name and Logo Search Term:**
+            - ALWAYS set the receipt_name field to be the same as the store_name. The store name should be the title of the receipt.
+            - Create a logo_search_term field that contains an optimized search query for finding the store's logo.
+            - The logo_search_term should be the clearest, most recognizable version of the store name by:
+              * Removing location identifiers (e.g., "Walmart Supercenter #1234" → "Walmart")
+              * Removing branch numbers (e.g., "Target Store #0456" → "Target")
+              * Removing unnecessary descriptors (e.g., "McDonald's Restaurant" → "McDonald's")
+              * Using the parent brand name for franchises (e.g., "John's Pizza - Downtown" → "John's Pizza")
+              * Standardizing common abbreviations (e.g., "Taco Bell Express" → "Taco Bell")
+            - Examples:
+              * "Walmart Supercenter #1234" → logo_search_term: "Walmart"
+              * "Target Store #0456" → logo_search_term: "Target"
+              * "McDonald's - Main St" → logo_search_term: "McDonald's"
+              * "Starbucks Coffee - Airport Terminal" → logo_search_term: "Starbucks"
+              * "7-Eleven #4285" → logo_search_term: "7-Eleven"
+
             #### **Item Categorization:**
             Each item must be placed in the most appropriate category:
             - Groceries → Food, beverages, household essentials, cleaning supplies, snacks, dairy, bakery items, frozen foods, and fresh produce.
@@ -665,6 +630,7 @@ struct NewExpenseView: View {
             - For items with unclear names, try to interpret them based on context or price.
             - If an item appears to be a discount, points redemption, or free item, mark it correctly with isDiscount=true.
             - For items that are clearly part of a points redemption system, ensure they are properly marked.
+            - Verify that receipt_name matches store_name and that logo_search_term is properly optimized.
 
             Goal: Fully automate receipt scanning for a seamless user experience. NEVER return null values - use reasonable defaults instead (0 for numbers, empty strings for text, current date for dates). Be aware that items such as paper cups or ketchup may sometimes be free items and may not have any price beside them - use 0.0 for these prices.
             """
@@ -722,6 +688,9 @@ struct NewExpenseView: View {
                 "receipt_name": {
                   "type": "string"
                 },
+                "logo_search_term": {
+                  "type": "string"
+                },
                 "items": {
                   "type": "array",
                   "items": {
@@ -767,6 +736,7 @@ struct NewExpenseView: View {
                 "store_name",
                 "store_address",
                 "receipt_name",
+                "logo_search_term",
                 "items"
               ]
             }
@@ -904,7 +874,8 @@ struct NewExpenseView: View {
                 purchase_date: parsedData.purchase_date ?? currentDate,
                 currency: parsedData.currency ?? "USD",
                 payment_method: parsedData.payment_method ?? "Unknown",
-                total_tax: parsedData.total_tax ?? 0.0
+                total_tax: parsedData.total_tax ?? 0.0,
+                logo_search_term: parsedData.logo_search_term
             )
 
             return receipt
@@ -925,11 +896,12 @@ struct NewExpenseView: View {
         var store_name: String?
         var store_address: String?
         var receipt_name: String?
+        var logo_search_term: String?
         var items: [TemporaryReceiptItem]
 
         // Add coding keys to handle all fields
         enum CodingKeys: String, CodingKey {
-            case total_amount, total_tax, currency, payment_method, purchase_date, store_name, store_address, receipt_name, items
+            case total_amount, total_tax, currency, payment_method, purchase_date, store_name, store_address, receipt_name, logo_search_term, items
         }
 
         init(from decoder: Decoder) throws {
@@ -943,6 +915,7 @@ struct NewExpenseView: View {
             store_name = try container.decodeIfPresent(String.self, forKey: .store_name)
             store_address = try container.decodeIfPresent(String.self, forKey: .store_address)
             receipt_name = try container.decodeIfPresent(String.self, forKey: .receipt_name)
+            logo_search_term = try container.decodeIfPresent(String.self, forKey: .logo_search_term)
 
             // Items is required, but we'll provide an empty array if missing
             items = try container.decodeIfPresent([TemporaryReceiptItem].self, forKey: .items) ?? []

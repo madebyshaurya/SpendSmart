@@ -9,6 +9,8 @@ import SwiftUI
 import AuthenticationServices
 import Supabase
 import Charts
+import Foundation
+import MapKit
 
 struct DashboardView: View {
     var email: String
@@ -20,6 +22,7 @@ struct DashboardView: View {
     @State private var isLoading = false
     @State private var showingEarned = false // false = showing Spent, true = showing Earned
     @State private var selectedReceipt: Receipt? = nil
+    @State private var showMapView = false
     // MARK: - Fetch Receipts
     func fetchUserReceipts() async {
         isLoading = true  // Start loading
@@ -106,7 +109,7 @@ struct DashboardView: View {
             print("❌ Error inserting receipt: \(error.localizedDescription)")
         }
     }
-    
+
     // MARK: - Update Receipt
     func updateReceipt(updatedReceipt: Receipt) async {
         // Check if we're in guest mode (using local storage)
@@ -120,7 +123,7 @@ struct DashboardView: View {
             }
             return
         }
-        
+
         // If not in guest mode, update in Supabase
         do {
             let encoder = JSONEncoder()
@@ -129,13 +132,13 @@ struct DashboardView: View {
             dateFormatter.locale = Locale(identifier: "en_US_POSIX")
             dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
             encoder.dateEncodingStrategy = .formatted(dateFormatter)
-            
+
             try await supabase
                 .from("receipts")
                 .update(updatedReceipt)
                 .eq("id", value: updatedReceipt.id)
                 .execute()
-            
+
             print("✅ Receipt updated successfully!")
         } catch {
             print("❌ Error updating receipt: \(error.localizedDescription)")
@@ -145,6 +148,8 @@ struct DashboardView: View {
     // MARK: - Calculate Costs By Category (Including Tax)
     func calculateCostByCategory(receipts: [Receipt]) -> [(category: String, total: Double)] {
         var categoryTotals: [String: Double] = [:]
+        let currencyManager = CurrencyManager.shared
+        let preferredCurrency = currencyManager.preferredCurrency
 
         for receipt in receipts {
             // Sum each item's price by category, but only if it's not a discount or points redemption
@@ -153,10 +158,20 @@ struct DashboardView: View {
                 if item.isDiscount || (item.price == 0 && item.discountDescription?.lowercased().contains("point") == true) {
                     continue
                 }
-                categoryTotals[item.category, default: 0] += item.price
+
+                // Convert item price to preferred currency
+                let convertedPrice = currencyManager.convertAmountSync(item.price,
+                                                                    from: receipt.currency,
+                                                                    to: preferredCurrency)
+
+                categoryTotals[item.category, default: 0] += convertedPrice
             }
-            // Add the receipt's tax to the "Tax" category.
-            categoryTotals["Tax", default: 0] += receipt.total_tax
+
+            // Add the receipt's tax to the "Tax" category (converted to preferred currency)
+            let convertedTax = currencyManager.convertAmountSync(receipt.total_tax,
+                                                              from: receipt.currency,
+                                                              to: preferredCurrency)
+            categoryTotals["Tax", default: 0] += convertedTax
         }
 
         return categoryTotals.map { (category: $0.key, total: $0.value) }
@@ -168,13 +183,25 @@ struct DashboardView: View {
         var totalTax = 0.0
         var totalSavings = 0.0
 
-        for receipt in receipts {
-            // Use total_amount as the actual amount spent (what the customer paid)
-            totalExpense += receipt.total_amount
-            totalTax += receipt.total_tax
+        let currencyManager = CurrencyManager.shared
+        let preferredCurrency = currencyManager.preferredCurrency
 
-            // Add the savings from this receipt
-            totalSavings += receipt.savings
+        for receipt in receipts {
+            // Convert amounts to preferred currency before adding
+            let convertedAmount = currencyManager.convertAmountSync(receipt.total_amount,
+                                                                 from: receipt.currency,
+                                                                 to: preferredCurrency)
+            let convertedTax = currencyManager.convertAmountSync(receipt.total_tax,
+                                                              from: receipt.currency,
+                                                              to: preferredCurrency)
+            let convertedSavings = currencyManager.convertAmountSync(receipt.savings,
+                                                                  from: receipt.currency,
+                                                                  to: preferredCurrency)
+
+            // Add the converted amounts
+            totalExpense += convertedAmount
+            totalTax += convertedTax
+            totalSavings += convertedSavings
         }
 
         return (totalExpense, totalTax, totalSavings)
@@ -221,11 +248,69 @@ struct DashboardView: View {
                         ExpenseCategoryListView(categoryCosts: costByCategory)
                             .padding(.bottom, 5)
 
-                        // Insights Section
-                        SpendingInsightsView(receipts: currentUserReceipts, onReceiptTap: { receipt in
-                            selectedReceipt = receipt
-                        })
-                            .padding(.bottom, 5)
+                        // Map View Button
+                        Button {
+                            showMapView = true
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Image(systemName: "map.fill")
+                                            .font(.system(size: 24))
+                                            .foregroundColor(.blue)
+
+                                        HStack(spacing: 8) {
+                                            Text("Spending Map")
+                                                .font(.instrumentSans(size: 24, weight: .semibold))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                            Text("BETA")
+                                                .font(.instrumentSans(size: 12, weight: .bold))
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 3)
+                                                .background(
+                                                    Capsule()
+                                                        .fill(Color.blue)
+                                                )
+                                        }
+                                    }
+
+                                    Text("View your spending patterns by location")
+                                        .font(.instrumentSans(size: 16))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right.circle.fill")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.blue)
+                            }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .fill(colorScheme == .dark ? Color.black.opacity(0.5) : Color.white.opacity(0.9))
+                                    .shadow(color: colorScheme == .dark ? Color.blue.opacity(0.2) : Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .strokeBorder(
+                                        LinearGradient(
+                                            colors: [
+                                                Color.blue.opacity(0.5),
+                                                Color.blue.opacity(0.2)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 1
+                                    )
+                            )
+                            .padding(.horizontal)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.bottom, 5)
 
                         // Donut Chart
                         VStack(spacing: 16) {
@@ -246,7 +331,7 @@ struct DashboardView: View {
                                 .cornerRadius(12)
                                 .foregroundStyle(by: .value("Category", item.category))
                                 .annotation(position: .overlay) {
-                                    Text("$\(Int(item.total))")
+                                    Text(CurrencyManager.shared.formatAmount(item.total, currencyCode: CurrencyManager.shared.preferredCurrency))
                                         .font(.spaceGrotesk(size: 16, weight: .semibold))
                                         .foregroundColor(.white)
                                         .padding(4)
@@ -329,6 +414,12 @@ struct DashboardView: View {
                 })
                 .environmentObject(appState)
             }
+
+            // Map View Modal
+            if showMapView {
+                MapViewModal(isPresented: $showMapView, receipts: currentUserReceipts)
+                    .transition(.opacity)
+            }
         }
         .animation(.easeInOut, value: currentUserReceipts)
         .onAppear {
@@ -346,6 +437,7 @@ struct SavingsSummaryView: View {
     var totalSavings: Double
     var receiptCount: Int
     @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var currencyManager = CurrencyManager.shared
 
     var body: some View {
         VStack(spacing: 16) {
@@ -378,7 +470,7 @@ struct SavingsSummaryView: View {
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
                     }
 
-                    Text("$\(String(format: "%.2f", totalExpense))")
+                    Text(currencyManager.formatAmount(totalExpense, currencyCode: currencyManager.preferredCurrency))
                         .font(.spaceGrotesk(size: 24, weight: .bold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
@@ -399,7 +491,7 @@ struct SavingsSummaryView: View {
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
                     }
 
-                    Text("$\(String(format: "%.2f", totalSavings))")
+                    Text(currencyManager.formatAmount(totalSavings, currencyCode: currencyManager.preferredCurrency))
                         .font(.spaceGrotesk(size: 24, weight: .bold))
                         .foregroundColor(.green)
                 }
@@ -421,7 +513,7 @@ struct SavingsSummaryView: View {
 
                 Spacer()
 
-                Text("$\(String(format: "%.2f", totalTax))")
+                Text(currencyManager.formatAmount(totalTax, currencyCode: currencyManager.preferredCurrency))
                     .font(.spaceGrotesk(size: 18, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
@@ -481,13 +573,14 @@ struct SummaryItemView: View {
     let title: String
     let amount: Double
     @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var currencyManager = CurrencyManager.shared
 
     var body: some View {
         VStack {
             Text(title)
                 .font(.instrumentSans(size: 14))
                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
-            Text("$\(String(format: "%.2f", amount))")
+            Text(currencyManager.formatAmount(amount, currencyCode: currencyManager.preferredCurrency))
                 .font(.spaceGrotesk(size: 20, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         }
@@ -498,6 +591,7 @@ struct SummaryItemView: View {
 struct MonthlyBarChartView: View {
     var receipts: [Receipt]
     @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var currencyManager = CurrencyManager.shared
 
     // Function to group receipts by month
     func receiptsByMonth() -> [(month: String, total: Double)] {
@@ -516,10 +610,17 @@ struct MonthlyBarChartView: View {
             }
         }
 
-        // Sum receipts by month using actualAmountSpent
+        // Sum receipts by month using actualAmountSpent converted to preferred currency
+        let currencyManager = CurrencyManager.shared
+        let preferredCurrency = currencyManager.preferredCurrency
+
         for receipt in receipts {
             let monthStr = dateFormatter.string(from: receipt.purchase_date)
-            monthlyTotals[monthStr, default: 0] += receipt.actualAmountSpent
+            // Convert amount to preferred currency before adding
+            let convertedAmount = currencyManager.convertAmountSync(receipt.actualAmountSpent,
+                                                                 from: receipt.currency,
+                                                                 to: preferredCurrency)
+            monthlyTotals[monthStr, default: 0] += convertedAmount
         }
 
         // Sort by month (chronologically)
@@ -557,7 +658,7 @@ struct MonthlyBarChartView: View {
                         if let doubleValue = value.as(Double.self) {
                             AxisGridLine()
                             AxisValueLabel {
-                                Text("$\(Int(doubleValue))")
+                                Text(currencyManager.formatAmount(doubleValue, currencyCode: currencyManager.preferredCurrency))
                                     .font(.instrumentSans(size: 12))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                             }
@@ -596,6 +697,7 @@ struct MonthlyBarChartView: View {
 struct ExpenseCategoryListView: View {
     var categoryCosts: [(category: String, total: Double)]
     @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var currencyManager = CurrencyManager.shared
 
     // Category icon mapping
     func iconForCategory(_ category: String) -> (name: String, color: Color) {
@@ -693,7 +795,7 @@ struct ExpenseCategoryListView: View {
 
             Spacer()
 
-            Text(String(format: "$%.2f", item.total))
+            Text(currencyManager.formatAmount(item.total, currencyCode: currencyManager.preferredCurrency))
                 .font(.spaceGrotesk(size: 18, weight: .bold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         }

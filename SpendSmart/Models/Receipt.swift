@@ -21,6 +21,7 @@ struct Receipt: Identifiable, Codable, Equatable {
     var currency: String
     var payment_method: String
     var total_tax: Double
+    var logo_search_term: String? // Optimized search term for finding the store's logo
 
     // Computed property to get the main image URL (for backward compatibility with code)
     var image_url: String {
@@ -36,9 +37,8 @@ struct Receipt: Identifiable, Codable, Equatable {
 
     // Computed property to calculate the original price before discounts
     var originalPrice: Double {
-        // Calculate the sum of all item prices plus tax
-        let itemsTotal = items.reduce(0) { total, item in
-            // For discount items, use their original price if available
+        // Calculate the sum of all non-discount items and their original prices if available
+        let regularItemsTotal = items.reduce(0) { total, item in
             if item.isDiscount {
                 return total
             } else if let originalPrice = item.originalPrice, originalPrice > item.price {
@@ -47,16 +47,30 @@ struct Receipt: Identifiable, Codable, Equatable {
                 return total + item.price
             }
         }
-        return itemsTotal + total_tax
+
+        // Original price is regular items total + tax
+        // We don't add discounts here because that's part of the savings calculation
+        return regularItemsTotal + total_tax
     }
 
     // Computed property to calculate savings
     var savings: Double {
-        let original = originalPrice
-        return original > total_amount ? original - total_amount : 0
+        // Calculate the sum of all discount items (these are typically negative values)
+        let discountItemsTotal = items.reduce(0) { total, item in
+            if item.isDiscount {
+                return total + abs(item.price) // Convert to positive for savings display
+            } else if let originalPrice = item.originalPrice, originalPrice > item.price {
+                return total + (originalPrice - item.price) // Add the difference as savings
+            } else {
+                return total
+            }
+        }
+
+        // Return the total discounts (should be positive)
+        return discountItemsTotal
     }
 
-    init(id: UUID, user_id: UUID, image_urls: [String] = [], total_amount: Double, items: [ReceiptItem], store_name: String, store_address: String, receipt_name: String, purchase_date: Date, currency: String, payment_method: String, total_tax: Double) {
+    init(id: UUID, user_id: UUID, image_urls: [String] = [], total_amount: Double, items: [ReceiptItem], store_name: String, store_address: String, receipt_name: String, purchase_date: Date, currency: String, payment_method: String, total_tax: Double, logo_search_term: String? = nil) {
         self.id = id
         self.user_id = user_id
         self.image_urls = image_urls
@@ -69,12 +83,13 @@ struct Receipt: Identifiable, Codable, Equatable {
         self.currency = currency
         self.payment_method = payment_method
         self.total_tax = total_tax
+        self.logo_search_term = logo_search_term
     }
 
     // Convenience initializer that accepts a single image_url for backward compatibility with code
-    init(id: UUID, user_id: UUID, image_url: String, total_amount: Double, items: [ReceiptItem], store_name: String, store_address: String, receipt_name: String, purchase_date: Date, currency: String, payment_method: String, total_tax: Double) {
+    init(id: UUID, user_id: UUID, image_url: String, total_amount: Double, items: [ReceiptItem], store_name: String, store_address: String, receipt_name: String, purchase_date: Date, currency: String, payment_method: String, total_tax: Double, logo_search_term: String? = nil) {
         let urls = image_url != "placeholder_url" ? [image_url] : []
-        self.init(id: id, user_id: user_id, image_urls: urls, total_amount: total_amount, items: items, store_name: store_name, store_address: store_address, receipt_name: receipt_name, purchase_date: purchase_date, currency: currency, payment_method: payment_method, total_tax: total_tax)
+        self.init(id: id, user_id: user_id, image_urls: urls, total_amount: total_amount, items: items, store_name: store_name, store_address: store_address, receipt_name: receipt_name, purchase_date: purchase_date, currency: currency, payment_method: payment_method, total_tax: total_tax, logo_search_term: logo_search_term)
     }
 }
 
