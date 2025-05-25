@@ -481,26 +481,28 @@ struct SavingsSummaryView: View {
                         .fill(colorScheme == .dark ? Color.blue.opacity(0.15) : Color.blue.opacity(0.1))
                 )
 
-                // Savings
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "tag.fill")
-                            .foregroundColor(.green)
-                        Text("Savings")
-                            .font(.instrumentSans(size: 14))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
-                    }
+                // Savings - Only show if totalSavings > 0
+                if totalSavings > 0 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "tag.fill")
+                                .foregroundColor(.green)
+                            Text("Savings")
+                                .font(.instrumentSans(size: 14))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+                        }
 
-                    Text(currencyManager.formatAmount(totalSavings, currencyCode: currencyManager.preferredCurrency))
-                        .font(.spaceGrotesk(size: 24, weight: .bold))
-                        .foregroundColor(.green)
+                        Text(currencyManager.formatAmount(totalSavings, currencyCode: currencyManager.preferredCurrency))
+                            .font(.spaceGrotesk(size: 24, weight: .bold))
+                            .foregroundColor(.green)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(colorScheme == .dark ? Color.green.opacity(0.15) : Color.green.opacity(0.1))
+                    )
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.green.opacity(0.15) : Color.green.opacity(0.1))
-                )
             }
 
             // Tax row

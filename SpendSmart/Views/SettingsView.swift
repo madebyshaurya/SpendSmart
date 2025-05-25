@@ -192,25 +192,7 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(isCheckingForUpdates)
-
-                // Test version update alert
-                Button(action: {
-                    // Simulate a version update available
-                    appState.availableVersion = "1.2"
-                    appState.releaseNotes = "• Improved performance and stability\n• New version update notification system\n• Enhanced user interface\n• Bug fixes and optimizations"
-                    appState.showVersionUpdateAlert = true
-                }) {
-                    HStack {
-                        Text("Test Version Update Alert")
-                            .font(.instrumentSans(size: 16))
-
-                        Spacer()
-
-                        Image(systemName: "bell.badge")
-                            .foregroundColor(.orange)
-                    }
-                }
-
+                
                 // Temporary option to test onboarding
                 Button(action: {
                     // Reset onboarding completion status
