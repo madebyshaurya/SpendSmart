@@ -26,7 +26,8 @@
   - Date & time
 - 🧠 Smart parsing logic for messy or unclear receipts  
 - 📂 View and manage all your receipts in one place  
-- 🔓 100% open source & free to use  
+- 🔓 100% open source & free to use
+- 🌐 Supports Traditional Chinese localization
 
 ---
 
