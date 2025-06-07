@@ -215,11 +215,11 @@ struct NewExpenseView: View {
 
                             // Status Text
                             VStack(spacing: 10) {
-                                Text(step.rawValue)
+                                Text(LocalizedStringKey(step.rawValue))
                                     .font(.instrumentSans(size: 24, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
-                                Text(step.description)
+                                Text(LocalizedStringKey(step.description))
                                     .font(.instrumentSans(size: 16))
                                     .foregroundColor(colorScheme == .dark ? Color(hex: "BBBBBB") : Color(hex: "555555"))
                                     .multilineTextAlignment(.center)
@@ -489,7 +489,7 @@ struct NewExpenseView: View {
                     selectedImage = nil
                 }
             } message: {
-                Text(invalidReceiptMessage.isEmpty ? "The images you provided don't appear to contain valid receipts. Please try again with clear photos of actual receipts." : invalidReceiptMessage)
+                Text(invalidReceiptMessage.isEmpty ? NSLocalizedString("The images you provided don't appear to contain valid receipts. Please try again with clear photos of actual receipts.", comment: "") : invalidReceiptMessage)
             }
         }
     }

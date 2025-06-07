@@ -299,15 +299,15 @@ struct ReceiptDetailView: View {
                             if receipt.image_urls.count > 0 {
                                 VStack(spacing: 4) {
                                     if isZoomed {
-                                        Text("Current zoom: \(Int(zoomScale * 100))%")
+                                        Text(String(format: NSLocalizedString("Current zoom: %d%%", comment: ""), Int(zoomScale * 100)))
                                             .font(.instrumentSans(size: 14, weight: .medium))
                                             .foregroundColor(.primary)
 
-                                        Text("Pinch to zoom, drag to pan")
+                                        Text(LocalizedStringKey("Pinch to zoom, drag to pan"))
                                             .font(.instrumentSans(size: 12))
                                             .foregroundColor(.secondary)
                                     } else {
-                                        Text("Double-tap to zoom in")
+                                        Text(LocalizedStringKey("Double-tap to zoom in"))
                                             .font(.instrumentSans(size: 12))
                                             .foregroundColor(.secondary)
                                     }
@@ -500,7 +500,7 @@ struct ReceiptDetailView: View {
                                 // Show conversion info if different from preferred currency
                                 if receipt.currency != currencyManager.preferredCurrency {
                                     HStack(spacing: 4) {
-                                        Text("Converted to")
+                                        Text(LocalizedStringKey("Converted to"))
                                             .font(.instrumentSans(size: 12))
                                             .foregroundColor(.secondary)
 
@@ -511,7 +511,7 @@ struct ReceiptDetailView: View {
 
                                     // Show last updated timestamp with refresh button
                                     HStack {
-                                        Text("Rates: \(currencyManager.getLastUpdatedString())")
+                                        Text(String(format: NSLocalizedString("Rates: %@", comment: ""), currencyManager.getLastUpdatedString()))
                                             .font(.instrumentSans(size: 10))
                                             .foregroundColor(.secondary.opacity(0.7))
 

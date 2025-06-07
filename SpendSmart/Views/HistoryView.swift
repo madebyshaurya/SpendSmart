@@ -1051,7 +1051,7 @@ struct EnhancedReceiptCard: View {
                 deleteReceipt()
             }
         } message: {
-            Text("Are you sure you want to delete this receipt from \(receipt.store_name)? This action cannot be undone.")
+            Text(String(format: NSLocalizedString("Are you sure you want to delete this receipt from %@? This action cannot be undone.", comment: ""), receipt.store_name))
         }
     }
 
