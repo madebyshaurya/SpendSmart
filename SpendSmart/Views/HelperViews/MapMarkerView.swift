@@ -82,48 +82,22 @@ struct MapMarkerView: View {
 
     private func loadLogo() {
         let logoService = LogoService.shared
-        let cache = LogoCache.shared
-        let storeKey = cache.normalizeStoreName(storeLocation.logoSearchTerm)
 
-        // Check cache first
-        if let cached = cache.logoCache[storeKey] {
-            logoImage = cached.image
-            logoColors = cached.colors
-
-            // If we have colors but no image, generate a placeholder
-            if cached.image == nil && !cached.colors.isEmpty {
-                logoImage = logoService.generatePlaceholderImage(
-                    for: storeLocation.name,
-                    size: CGSize(width: storeLocation.markerSize * 0.6, height: storeLocation.markerSize * 0.6)
-                )
-            }
-            return
-        }
-
-        // Only attempt to fetch if we haven't recently failed
-        if cache.shouldAttemptFetch(for: storeKey) {
-            Task {
-                let (image, colors) = await logoService.fetchLogo(for: storeLocation.logoSearchTerm)
-                await MainActor.run {
-                    // If we got colors but no image, generate a placeholder
-                    if image == nil {
-                        logoImage = logoService.generatePlaceholderImage(
-                            for: storeLocation.name,
-                            size: CGSize(width: storeLocation.markerSize * 0.6, height: storeLocation.markerSize * 0.6)
-                        )
-                    } else {
-                        logoImage = image
-                    }
-                    logoColors = colors
+        // Use the enhanced logo fetching method
+        Task {
+            let (image, colors) = await logoService.fetchLogoForStoreLocation(storeLocation)
+            await MainActor.run {
+                // If we got colors but no image, generate a placeholder
+                if image == nil {
+                    logoImage = logoService.generatePlaceholderImage(
+                        for: storeLocation.name,
+                        size: CGSize(width: storeLocation.markerSize * 0.6, height: storeLocation.markerSize * 0.6)
+                    )
+                } else {
+                    logoImage = image
                 }
+                logoColors = colors
             }
-        } else {
-            // Generate a placeholder for failed fetches
-            logoImage = logoService.generatePlaceholderImage(
-                for: storeLocation.name,
-                size: CGSize(width: storeLocation.markerSize * 0.6, height: storeLocation.markerSize * 0.6)
-            )
-            logoColors = logoService.getCategoryColors(for: storeLocation.name)
         }
     }
 }
@@ -344,48 +318,22 @@ struct StoreDetailCard: View {
 
     private func loadLogo() {
         let logoService = LogoService.shared
-        let cache = LogoCache.shared
-        let storeKey = cache.normalizeStoreName(storeLocation.logoSearchTerm)
 
-        // Check cache first
-        if let cached = cache.logoCache[storeKey] {
-            logoImage = cached.image
-            logoColors = cached.colors
-
-            // If we have colors but no image, generate a placeholder
-            if cached.image == nil && !cached.colors.isEmpty {
-                logoImage = logoService.generatePlaceholderImage(
-                    for: storeLocation.name,
-                    size: CGSize(width: 40, height: 40)
-                )
-            }
-            return
-        }
-
-        // Only attempt to fetch if we haven't recently failed
-        if cache.shouldAttemptFetch(for: storeKey) {
-            Task {
-                let (image, colors) = await logoService.fetchLogo(for: storeLocation.logoSearchTerm)
-                await MainActor.run {
-                    // If we got colors but no image, generate a placeholder
-                    if image == nil {
-                        logoImage = logoService.generatePlaceholderImage(
-                            for: storeLocation.name,
-                            size: CGSize(width: 40, height: 40)
-                        )
-                    } else {
-                        logoImage = image
-                    }
-                    logoColors = colors
+        // Use the enhanced logo fetching method
+        Task {
+            let (image, colors) = await logoService.fetchLogoForStoreLocation(storeLocation)
+            await MainActor.run {
+                // If we got colors but no image, generate a placeholder
+                if image == nil {
+                    logoImage = logoService.generatePlaceholderImage(
+                        for: storeLocation.name,
+                        size: CGSize(width: 40, height: 40)
+                    )
+                } else {
+                    logoImage = image
                 }
+                logoColors = colors
             }
-        } else {
-            // Generate a placeholder for failed fetches
-            logoImage = logoService.generatePlaceholderImage(
-                for: storeLocation.name,
-                size: CGSize(width: 40, height: 40)
-            )
-            logoColors = logoService.getCategoryColors(for: storeLocation.name)
         }
     }
 

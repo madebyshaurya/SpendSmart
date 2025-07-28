@@ -544,6 +544,18 @@ struct ReceiptDetailView: View {
                                     Text("Location")
                                         .font(.instrumentSans(size: 14))
                                         .foregroundColor(.secondary)
+
+                                    Spacer()
+
+                                    // Copy button for location
+                                    Button(action: {
+                                        copyToClipboard(receipt.store_address)
+                                    }) {
+                                        Image(systemName: "doc.on.doc")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
                                 }
                                 Text(receipt.store_address)
                                     .font(.instrumentSans(size: 14))
@@ -775,21 +787,12 @@ struct ReceiptDetailView: View {
             }
         }
         .onAppear {
-            // Retrieve logo from cache first; if not, fetch it.
-            let storeKey = receipt.store_name.lowercased()
-
-            if let cached = logoCache.logoCache[storeKey] {
-                // If we have a cached entry (even if the image is nil)
-                logoImage = cached.image
-                logoColors = cached.colors
-            } else if LogoCache.shared.shouldAttemptFetch(for: storeKey) {
-                // Only attempt to fetch if we haven't recently failed
-                Task {
-                    let (fetchedImage, fetchedColors) = await LogoService.shared.fetchLogo(for: receipt.store_name)
-                    await MainActor.run {
-                        logoImage = fetchedImage
-                        logoColors = fetchedColors
-                    }
+            // Use the enhanced logo fetching method
+            Task {
+                let (fetchedImage, fetchedColors) = await LogoService.shared.fetchLogoForReceipt(receipt)
+                await MainActor.run {
+                    logoImage = fetchedImage
+                    logoColors = fetchedColors
                 }
             }
 
@@ -845,6 +848,11 @@ struct ReceiptDetailView: View {
     private func formatAddress(_ address: String) -> String {
         let components = address.components(separatedBy: ",")
         return components.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? address
+    }
+
+    private func copyToClipboard(_ text: String) {
+        UIPasteboard.general.string = text
+        // You could add a toast notification here if desired
     }
 
     // Helper function to get the appropriate currency symbol

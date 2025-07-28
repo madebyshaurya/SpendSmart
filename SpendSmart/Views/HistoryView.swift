@@ -64,12 +64,19 @@ class LogoCache: ObservableObject {
         }
     }
 
-    // Normalize store name for consistent caching
+    // Normalize store name for consistent caching with enhanced cleaning
     func normalizeStoreName(_ name: String) -> String {
         let normalizedName = name.lowercased()
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "'s", with: "s")  // Remove apostrophes in possessives
             .replacingOccurrences(of: "&", with: "and") // Replace & with and
+            .replacingOccurrences(of: "#\\d+", with: "", options: .regularExpression) // Remove store numbers
+            .replacingOccurrences(of: "store", with: "") // Remove "store" word
+            .replacingOccurrences(of: "market", with: "") // Remove "market" word
+            .replacingOccurrences(of: "shop", with: "") // Remove "shop" word
+            .replacingOccurrences(of: "restaurant", with: "") // Remove "restaurant" word
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression) // Normalize whitespace
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Check if we have a mapping for this name variation
         if let mappedName = storeNameMappings[normalizedName] {
@@ -77,6 +84,18 @@ class LogoCache: ObservableObject {
         }
 
         return normalizedName
+    }
+
+    // Generate a consistent cache key for a receipt
+    func generateCacheKey(for receipt: Receipt) -> String {
+        // Prioritize logo_search_term if available, otherwise use store_name
+        let searchTerm = receipt.logo_search_term?.trimmingCharacters(in: .whitespacesAndNewlines) ?? receipt.store_name
+        return normalizeStoreName(searchTerm)
+    }
+
+    // Generate a consistent cache key for a store location
+    func generateCacheKey(for storeLocation: StoreLocation) -> String {
+        return normalizeStoreName(storeLocation.logoSearchTerm)
     }
 
     // Add a mapping between name variations
@@ -95,6 +114,25 @@ class LogoCache: ObservableObject {
             return Date().timeIntervalSince(failedDate) > retryInterval
         }
         return true
+    }
+
+    // Clean up old cache entries and failed attempts
+    func cleanupCache() {
+        let now = Date()
+        let cleanupInterval: TimeInterval = 604800 // 7 days
+
+        // Remove old failed attempts
+        failedAttempts = failedAttempts.filter { _, date in
+            now.timeIntervalSince(date) < cleanupInterval
+        }
+
+        // Optionally remove very old cache entries (uncomment if needed)
+        // logoCache = logoCache.filter { key, _ in
+        //     // Keep entries that have been accessed recently or are for common stores
+        //     return true // For now, keep all cached logos
+        // }
+
+        print("🧹 Cache cleanup completed. Failed attempts: \(failedAttempts.count), Cached logos: \(logoCache.count)")
     }
 }
 
@@ -131,7 +169,19 @@ class LogoService {
         "home depot": "home depot",
         "the home depot": "home depot",
         "lowes": "lowes",
-        "lowe's": "lowes"
+        "lowe's": "lowes",
+        "cvs": "cvs",
+        "cvs pharmacy": "cvs",
+        "walgreens": "walgreens",
+        "subway": "subway",
+        "dunkin": "dunkin",
+        "dunkin donuts": "dunkin",
+        "7-eleven": "7-eleven",
+        "7 eleven": "7-eleven",
+        "shell": "shell",
+        "exxon": "exxon",
+        "bp": "bp",
+        "chevron": "chevron"
     ]
 
     // Default colors to use when no logo is available
@@ -157,13 +207,19 @@ class LogoService {
         let cache = LogoCache.shared
         let normalizedName = cache.normalizeStoreName(storeName)
 
+        print("🔍 Fetching logo for: '\(storeName)' -> normalized: '\(normalizedName)'")
+
         // Check for known store name corrections
         if let correctedName = checkForKnownStore(normalizedName) {
-            // Add mapping for future reference
-            cache.addNameMapping(from: normalizedName, to: correctedName)
+            print("✅ Found correction: '\(normalizedName)' -> '\(correctedName)'")
+            // Add mapping for future reference on main thread
+            await MainActor.run {
+                cache.addNameMapping(from: normalizedName, to: correctedName)
+            }
 
             // Check if we have the corrected name in cache
             if let cached = cache.logoCache[correctedName] {
+                print("📦 Using cached logo for corrected name: '\(correctedName)'")
                 return (cached.image, cached.colors)
             }
         }
@@ -305,8 +361,17 @@ class LogoService {
                             return (nil, defaultColors)
                         }
 
+                        // Validate the logo before caching
+                        guard validateLogo(image: image, for: storeName) else {
+                            print("❌ Logo validation failed for: \(storeName)")
+                            cacheFailedAttempt(for: normalizedName)
+                            return (nil, getCategoryColors(for: storeName))
+                        }
+
                         let colors = image.dominantColors(count: 3)
                         let finalColors = colors.isEmpty ? defaultColors : colors
+
+                        print("✅ Successfully fetched and validated logo for: \(storeName)")
 
                         // Cache the successful result on the main thread
                         await MainActor.run {
@@ -359,6 +424,95 @@ class LogoService {
             // Record the failure timestamp
             LogoCache.shared.failedAttempts[storeKey] = Date()
         }
+    }
+
+    // Validate if a logo is likely correct for the store
+    private func validateLogo(image: UIImage, for storeName: String) -> Bool {
+        // Basic validation - check if image is not too small or generic
+        let imageSize = image.size
+
+        // Reject very small images (likely low quality)
+        if imageSize.width < 32 || imageSize.height < 32 {
+            print("❌ Logo rejected: too small (\(imageSize.width)x\(imageSize.height))")
+            return false
+        }
+
+        // Reject very large images (likely not logos)
+        if imageSize.width > 1000 || imageSize.height > 1000 {
+            print("❌ Logo rejected: too large (\(imageSize.width)x\(imageSize.height))")
+            return false
+        }
+
+        // Additional validation could be added here (e.g., checking dominant colors, aspect ratio)
+        print("✅ Logo validated for: \(storeName)")
+        return true
+    }
+
+    // Enhanced logo fetching with better search terms
+    func fetchLogoForReceipt(_ receipt: Receipt) async -> (UIImage?, [Color]) {
+        let cache = LogoCache.shared
+        let cacheKey = cache.generateCacheKey(for: receipt)
+
+        print("🔍 Fetching logo for receipt: '\(receipt.store_name)' with key: '\(cacheKey)'")
+
+        // Check cache first
+        if let cached = cache.logoCache[cacheKey] {
+            print("📦 Using cached logo for: '\(cacheKey)'")
+            return (cached.image, cached.colors)
+        }
+
+        // Use logo_search_term if available, otherwise fall back to store_name
+        let searchTerm = receipt.logo_search_term?.trimmingCharacters(in: .whitespacesAndNewlines) ?? receipt.store_name
+        return await fetchLogo(for: searchTerm, cacheKey: cacheKey)
+    }
+
+    // Enhanced logo fetching for store locations
+    func fetchLogoForStoreLocation(_ storeLocation: StoreLocation) async -> (UIImage?, [Color]) {
+        let cache = LogoCache.shared
+        let cacheKey = cache.generateCacheKey(for: storeLocation)
+
+        print("🔍 Fetching logo for store location: '\(storeLocation.name)' with key: '\(cacheKey)'")
+
+        // Check cache first
+        if let cached = cache.logoCache[cacheKey] {
+            print("📦 Using cached logo for: '\(cacheKey)'")
+            return (cached.image, cached.colors)
+        }
+
+        return await fetchLogo(for: storeLocation.logoSearchTerm, cacheKey: cacheKey)
+    }
+
+    // Internal method with cache key parameter
+    private func fetchLogo(for searchTerm: String, cacheKey: String) async -> (UIImage?, [Color]) {
+        // Handle empty search terms
+        guard !searchTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return (nil, defaultColors)
+        }
+
+        let cache = LogoCache.shared
+
+        // Check for known store name corrections
+        if let correctedName = checkForKnownStore(cacheKey) {
+            print("✅ Found correction: '\(cacheKey)' -> '\(correctedName)'")
+            // Add mapping for future reference on main thread
+            await MainActor.run {
+                cache.addNameMapping(from: cacheKey, to: correctedName)
+            }
+
+            // Check if we have the corrected name in cache
+            if let cached = cache.logoCache[correctedName] {
+                print("📦 Using cached logo for corrected name: '\(correctedName)'")
+                return (cached.image, cached.colors)
+            }
+        }
+
+        // Only attempt to fetch if we haven't recently failed
+        if !cache.shouldAttemptFetch(for: cacheKey) {
+            print("⏳ Skipping fetch for '\(cacheKey)' - recent failure")
+            return (nil, getCategoryColors(for: searchTerm))
+        }
+
+        return await fetchLogoFromAPI(storeName: searchTerm, normalizedName: cacheKey)
     }
 
     // Generate a placeholder image for a store
@@ -430,13 +584,14 @@ struct HistoryView: View {
             // Get receipts from local storage
             let localReceipts = LocalStorageService.shared.getReceipts()
 
-            // Pre-fetch logos for receipts, but only if they're not already cached
+            // Pre-fetch logos for receipts using enhanced method
             for receipt in localReceipts {
-                let storeKey = receipt.store_name.lowercased()
-                if !LogoCache.shared.logoCache.keys.contains(storeKey) &&
-                   LogoCache.shared.shouldAttemptFetch(for: storeKey) {
+                let cache = LogoCache.shared
+                let cacheKey = cache.generateCacheKey(for: receipt)
+                if !cache.logoCache.keys.contains(cacheKey) &&
+                   cache.shouldAttemptFetch(for: cacheKey) {
                     Task {
-                        _ = await LogoService.shared.fetchLogo(for: receipt.store_name)
+                        _ = await LogoService.shared.fetchLogoForReceipt(receipt)
                     }
                 }
             }
@@ -477,13 +632,14 @@ struct HistoryView: View {
             let fetchedReceipts = try decoder.decode([Receipt].self, from: response.data)
             print("Decoded Receipts: \(fetchedReceipts.count)")
 
-            // Pre-fetch logos for receipts, but only if they're not already cached
+            // Pre-fetch logos for receipts using enhanced method
             for receipt in fetchedReceipts {
-                let storeKey = receipt.store_name.lowercased()
-                if !LogoCache.shared.logoCache.keys.contains(storeKey) &&
-                   LogoCache.shared.shouldAttemptFetch(for: storeKey) {
+                let cache = LogoCache.shared
+                let cacheKey = cache.generateCacheKey(for: receipt)
+                if !cache.logoCache.keys.contains(cacheKey) &&
+                   cache.shouldAttemptFetch(for: cacheKey) {
                     Task {
-                        _ = await LogoService.shared.fetchLogo(for: receipt.store_name)
+                        _ = await LogoService.shared.fetchLogoForReceipt(receipt)
                     }
                 }
             }
@@ -652,6 +808,8 @@ struct HistoryView: View {
             }
             .onAppear {
                 Task {
+                    // Clean up old cache entries periodically
+                    LogoCache.shared.cleanupCache()
                     await fetchReceipts()
                 }
             }
@@ -1164,23 +1322,12 @@ struct EnhancedReceiptCard: View {
     }
 
     private func loadLogo() {
-        let storeKey = receipt.store_name.lowercased()
-
-        // Check cache first
-        if let cached = LogoCache.shared.logoCache[storeKey] {
-            logoImage = cached.image
-            logoColors = cached.colors
-            return
-        }
-
-        // Only attempt to fetch if we haven't recently failed
-        if LogoCache.shared.shouldAttemptFetch(for: storeKey) {
-            Task {
-                let (image, colors) = await LogoService.shared.fetchLogo(for: receipt.store_name)
-                await MainActor.run {
-                    logoImage = image
-                    logoColors = colors
-                }
+        // Use the enhanced logo fetching method
+        Task {
+            let (image, colors) = await LogoService.shared.fetchLogoForReceipt(receipt)
+            await MainActor.run {
+                logoImage = image
+                logoColors = colors
             }
         }
     }

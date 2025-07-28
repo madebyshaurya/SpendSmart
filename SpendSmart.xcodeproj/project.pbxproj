@@ -14,6 +14,7 @@
 		50B538E32DAC2DBC00A2999A /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E22DAC2DBC00A2999A /* PostgREST */; };
 		50B538E52DAC2DBC00A2999A /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E42DAC2DBC00A2999A /* Realtime */; };
 		50B538E72DAC2DBC00A2999A /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E62DAC2DBC00A2999A /* Storage */; };
+		50E064712DEE4183009E889E /* OpenAI in Frameworks */ = {isa = PBXBuildFile; productRef = 50E064702DEE4183009E889E /* OpenAI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +49,7 @@
 			files = (
 				5060B9062D827079000CCB51 /* Supabase in Frameworks */,
 				50A4FA3C2D909F7200C89441 /* GoogleGenerativeAI in Frameworks */,
+				50E064712DEE4183009E889E /* OpenAI in Frameworks */,
 				50B538E72DAC2DBC00A2999A /* Storage in Frameworks */,
 				50B538E12DAC2DBC00A2999A /* Functions in Frameworks */,
 				50B538E52DAC2DBC00A2999A /* Realtime in Frameworks */,
@@ -102,6 +104,7 @@
 				50B538E22DAC2DBC00A2999A /* PostgREST */,
 				50B538E42DAC2DBC00A2999A /* Realtime */,
 				50B538E62DAC2DBC00A2999A /* Storage */,
+				50E064702DEE4183009E889E /* OpenAI */,
 			);
 			productName = SpendSmart;
 			productReference = 507C569A2D8254DC00CA1FD5 /* SpendSmart.app */;
@@ -134,6 +137,7 @@
 			packageReferences = (
 				5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 				50A4FA3A2D909F7200C89441 /* XCRemoteSwiftPackageReference "generative-ai-swift" */,
+				50E0646F2DEE4183009E889E /* XCRemoteSwiftPackageReference "OpenAI" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 507C569B2D8254DC00CA1FD5 /* Products */;
@@ -294,7 +298,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = SpendSmart/SpendSmart.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1.1;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_ASSET_PATHS = "\"SpendSmart/Preview Content\"";
 				DEVELOPMENT_TEAM = M542AQBJC5;
 				ENABLE_PREVIEWS = YES;
@@ -315,7 +319,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartAppStore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -333,7 +337,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = SpendSmart/SpendSmart.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1.1;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_ASSET_PATHS = "\"SpendSmart/Preview Content\"";
 				DEVELOPMENT_TEAM = M542AQBJC5;
 				ENABLE_PREVIEWS = YES;
@@ -354,7 +358,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartAppStore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -405,6 +409,14 @@
 				minimumVersion = 0.5.6;
 			};
 		};
+		50E0646F2DEE4183009E889E /* XCRemoteSwiftPackageReference "OpenAI" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/MacPaw/OpenAI.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.4.3;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -442,6 +454,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Storage;
+		};
+		50E064702DEE4183009E889E /* OpenAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 50E0646F2DEE4183009E889E /* XCRemoteSwiftPackageReference "OpenAI" */;
+			productName = OpenAI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

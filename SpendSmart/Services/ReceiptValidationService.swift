@@ -13,21 +13,8 @@ import Vision
 class ReceiptValidationService {
     static let shared = ReceiptValidationService()
 
-    // Get the API key from the app's environment
-    private var geminiAPIKey: String {
-        // Try to get the API key from the environment
-        if let apiKey = Bundle.main.infoDictionary?["GEMINI_API_KEY"] as? String, !apiKey.isEmpty {
-            return apiKey
-        }
-
-        // Try to get the API key from UserDefaults (in case it was set elsewhere in the app)
-        if let apiKey = UserDefaults.standard.string(forKey: "GEMINI_API_KEY"), !apiKey.isEmpty {
-            return apiKey
-        }
-
-        // Return empty string to trigger fallback validation
-        return ""
-    }
+    // Use the shared AI service (supports both Gemini and OpenAI)
+    private let aiService = AIService.shared
 
     private init() {}
 
@@ -35,56 +22,52 @@ class ReceiptValidationService {
     /// - Parameter image: The image to validate
     /// - Returns: A tuple containing a boolean indicating if the image is a valid receipt and a message
     func validateReceiptImage(_ image: UIImage) async -> (isValid: Bool, message: String) {
-        // First try the AI-based validation if API key is available
-        if !geminiAPIKey.isEmpty {
-            do {
-                let systemPrompt = """
-                You are a receipt validation system. Your task is to determine if an image contains a valid receipt.
+        // First try the AI-based validation
+        do {
+            let systemPrompt = """
+            You are a receipt validation system. Your task is to determine if an image contains a valid receipt.
 
-                A valid receipt should have most of these elements:
-                1. Store/merchant name
-                2. Date of purchase
-                3. List of items purchased with prices
-                4. Total amount
-                5. Payment information
+            A valid receipt should have most of these elements:
+            1. Store/merchant name
+            2. Date of purchase
+            3. List of items purchased with prices
+            4. Total amount
+            5. Payment information
 
-                Respond with a JSON object containing:
-                1. "isValid": boolean (true if it's a valid receipt, false otherwise)
-                2. "confidence": number between 0 and 1 (how confident you are in your assessment)
-                3. "message": string (explanation of why it is or isn't a valid receipt)
-                4. "missingElements": array of strings (what elements are missing if it's not valid)
+            Respond with a JSON object containing:
+            1. "isValid": boolean (true if it's a valid receipt, false otherwise)
+            2. "confidence": number between 0 and 1 (how confident you are in your assessment)
+            3. "message": string (explanation of why it is or isn't a valid receipt)
+            4. "missingElements": array of strings (what elements are missing if it's not valid)
 
-                Be strict in your validation. If the image is blurry, doesn't contain clear text, or is not a receipt at all (e.g., a random photo, screenshot, etc.), mark it as invalid.
-                """
+            Be strict in your validation. If the image is blurry, doesn't contain clear text, or is not a receipt at all (e.g., a random photo, screenshot, etc.), mark it as invalid.
+            """
 
-                let config = GenerationConfig(
-                    temperature: 0.2,
-                    topP: 0.95,
-                    topK: 40,
-                    maxOutputTokens: 2048,
-                    responseMIMEType: "application/json"
-                )
+            let config = GenerationConfig(
+                temperature: 0.2,
+                topP: 0.95,
+                topK: 40,
+                maxOutputTokens: 2048,
+                responseMIMEType: "application/json"
+            )
 
-                let model = GenerativeModel(
-                    name: "gemini-2.0-flash",
-                    apiKey: geminiAPIKey,
-                    generationConfig: config,
-                    systemInstruction: systemPrompt
-                )
+            let prompt = "Analyze this image and determine if it contains a valid receipt. Respond with the JSON format specified in your instructions."
+            let response = try await aiService.generateContent(
+                prompt: prompt,
+                image: image,
+                systemInstruction: systemPrompt,
+                config: config
+            )
 
-                let prompt = "Analyze this image and determine if it contains a valid receipt. Respond with the JSON format specified in your instructions."
-                let response = try await model.generateContent(prompt, image)
-
-                if let jsonString = response.text {
-                    return parseValidationResponse(jsonString)
-                }
-            } catch {
-                print("Error validating receipt with AI: \(error)")
-                // Fall through to the fallback method
+            if let jsonString = response.text {
+                return parseValidationResponse(jsonString)
             }
+        } catch {
+            print("Error validating receipt with AI: \(error)")
+            // Fall through to the fallback method
         }
 
-        // Fallback to basic image validation if AI validation fails or API key is invalid
+        // Fallback to basic image validation if AI validation fails
         return await fallbackValidateReceiptImage(image)
     }
 

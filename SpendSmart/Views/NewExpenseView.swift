@@ -34,6 +34,12 @@ struct NewExpenseView: View {
     @State private var invalidReceiptMessage = ""
     @EnvironmentObject var appState: AppState
 
+    // Use the shared AI service (supports both Gemini and OpenAI)
+    private let aiService = AIService.shared
+
+    // Toast manager for error notifications
+    @StateObject private var toastManager = ToastManager()
+
     enum ProcessingStep: String, CaseIterable {
         case validatingReceipt = "Validating Receipt"
         case extractingText = "Extracting Text"
@@ -63,11 +69,11 @@ struct NewExpenseView: View {
         var description: String {
             switch self {
             case .validatingReceipt:
-                return "Checking if image contains a valid receipt..."
+                return "Validating receipt..."
             case .extractingText:
                 return "Reading receipt details..."
             case .analyzingReceipt:
-                return "Identifying items and prices..."
+                return "Analyzing receipt data..."
             case .savingToDatabase:
                 return "Adding to your expenses..."
             case .complete:
@@ -308,44 +314,13 @@ struct NewExpenseView: View {
                         isAddingExpense = true
                         Task {
                             do {
-                                // Start with receipt validation
+                                // Start with unified receipt validation and processing
                                 withAnimation {
                                     progressStep = .validatingReceipt
                                 }
 
-                                // Validate the receipt images
-                                let imagesToValidate = !capturedImages.isEmpty ? capturedImages : (selectedImage.map { [$0] } ?? [])
-
-                                do {
-                                    let (isValid, message) = await ReceiptValidationService.shared.validateReceiptImages(imagesToValidate)
-
-                                    if !isValid {
-                                        // Handle invalid receipt
-                                        withAnimation {
-                                            progressStep = .invalidReceipt
-                                        }
-                                        invalidReceiptMessage = message
-                                        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-                                        withAnimation {
-                                            isAddingExpense = false
-                                            progressStep = nil
-                                        }
-                                        showInvalidReceiptAlert = true
-                                        return
-                                    }
-                                } catch {
-                                    print("Error during receipt validation: \(error)")
-                                    // Continue with processing even if validation fails
-                                    // This ensures the app doesn't block users if the validation service has issues
-                                }
-
-                                // Continue with text extraction
-                                withAnimation {
-                                    progressStep = .extractingText
-                                }
-
-                                // Simulate extraction time (in real implementation, this will be the actual processing time)
-                                try await Task.sleep(nanoseconds: 200_000_000)
+                                // Show validating state for better UX
+                                try await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
 
                                 withAnimation {
                                     progressStep = .analyzingReceipt
@@ -362,6 +337,23 @@ struct NewExpenseView: View {
                                     // For now, we'll use the first image for text extraction
                                     receipt = await extractDataFromImage(receiptImage: capturedImages[0])
 
+                                    // Check if validation failed
+                                    if receipt == nil {
+                                        // Show invalid receipt toast
+                                        await MainActor.run {
+                                            toastManager.show(
+                                                message: "Invalid receipt",
+                                                type: .error
+                                            )
+                                        }
+
+                                        try await Task.sleep(nanoseconds: 1_000_000_000)
+                                        isAddingExpense = false
+                                        progressStep = nil
+                                        return
+                                    }
+
+                                    // Only upload images if AI processing was successful
                                     withAnimation {
                                         progressStep = .savingToDatabase
                                     }
@@ -385,6 +377,23 @@ struct NewExpenseView: View {
                                     // Process single image
                                     receipt = await extractDataFromImage(receiptImage: selectedImage)
 
+                                    // Check if validation failed
+                                    if receipt == nil {
+                                        // Show invalid receipt toast
+                                        await MainActor.run {
+                                            toastManager.show(
+                                                message: "Invalid receipt",
+                                                type: .error
+                                            )
+                                        }
+
+                                        try await Task.sleep(nanoseconds: 1_000_000_000)
+                                        isAddingExpense = false
+                                        progressStep = nil
+                                        return
+                                    }
+
+                                    // Only upload image if AI processing was successful
                                     withAnimation {
                                         progressStep = .savingToDatabase
                                     }
@@ -408,6 +417,16 @@ struct NewExpenseView: View {
                                     withAnimation {
                                         progressStep = .error
                                     }
+
+                                    // Show specific error toast
+                                    await MainActor.run {
+                                        toastManager.show(
+                                            message: "Unable to extract receipt data. Please ensure the image is clear and contains a valid receipt.",
+                                            type: .error,
+                                            duration: 5.0
+                                        )
+                                    }
+
                                     try await Task.sleep(nanoseconds: 500_000_000)
                                     isAddingExpense = false
                                     progressStep = nil
@@ -416,6 +435,17 @@ struct NewExpenseView: View {
                                 withAnimation {
                                     progressStep = .error
                                 }
+
+                                // Show specific error toast based on error type
+                                await MainActor.run {
+                                    let errorMessage = getErrorMessage(from: error)
+                                    toastManager.show(
+                                        message: errorMessage,
+                                        type: .error,
+                                        duration: 6.0
+                                    )
+                                }
+
                                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                                 isAddingExpense = false
                                 progressStep = nil
@@ -491,6 +521,7 @@ struct NewExpenseView: View {
             } message: {
                 Text(invalidReceiptMessage.isEmpty ? "The images you provided don't appear to contain valid receipts. Please try again with clear photos of actual receipts." : invalidReceiptMessage)
             }
+            .toast(toastManager: toastManager)
         }
     }
 
@@ -498,6 +529,50 @@ struct NewExpenseView: View {
     func uploadImage(_ image: UIImage) async -> String {
         // Use the ImageStorageService to handle image uploads with fallback options
         return await ImageStorageService.shared.uploadImage(image)
+    }
+
+    // Helper function to get user-friendly error messages
+    private func getErrorMessage(from error: Error) -> String {
+        // Check for new AIServiceError first
+        if let aiError = error as? AIServiceError {
+            switch aiError {
+            case .recentFailure:
+                return "Service temporarily unavailable. Please try again in a few minutes."
+            case .allKeysFailed:
+                return "Processing service is currently busy. Please try again later."
+            case .imageProcessingFailed:
+                return "Failed to process image. Please try with a different image."
+            case .noResponseContent:
+                return "Service returned no content. Please try again."
+            }
+        }
+        // Keep backward compatibility with legacy GeminiAPIError
+        else if let geminiError = error as? GeminiAPIError {
+            switch geminiError {
+            case .recentFailure:
+                return "Service temporarily unavailable. Please try again in a few minutes."
+            case .allKeysFailed:
+                return "Processing service is currently busy. Please try again later."
+            }
+        } else {
+            // Check for specific error patterns in the error description
+            let errorDescription = error.localizedDescription.lowercased()
+            if errorDescription.contains("503") || errorDescription.contains("overloaded") || errorDescription.contains("unavailable") {
+                return "Service is busy. Retrying..."
+            } else if errorDescription.contains("429") || errorDescription.contains("rate limit") {
+                return "Too many requests. Please wait a moment and try again."
+            } else if errorDescription.contains("401") || errorDescription.contains("403") || errorDescription.contains("unauthorized") {
+                return "Service authentication issue. Retrying..."
+            } else if errorDescription.contains("400") || errorDescription.contains("bad request") {
+                return "Invalid image format. Please try with a different image."
+            } else if errorDescription.contains("network") || errorDescription.contains("internet") {
+                return "Network connection issue. Please check your internet and try again."
+            } else if errorDescription.contains("timeout") {
+                return "Request timed out. Please try again with a clearer image."
+            } else {
+                return "Processing failed. Please try again."
+            }
+        }
     }
 
     // Helper function to resize images before upload
@@ -579,9 +654,16 @@ struct NewExpenseView: View {
     func extractDataFromImage(receiptImage: UIImage) async -> Receipt? {
         do {
             let systemPrompt = """
-            ### **SpendSmart Receipt Extraction System**
+            ### **SpendSmart Receipt Extraction and Validation System**
 
-            #### **Extraction Rules:**
+            #### **CRITICAL: Receipt Validation First**
+            Before extracting any data, you MUST validate if this image contains a valid receipt:
+            - A valid receipt should have: store name, date, items with prices, and total amount
+            - If the image is blurry, unclear, not a receipt, or missing critical elements, return validation failure
+            - If validation fails, return ONLY: {"isValid": false, "message": "Invalid receipt detected"}
+            - If validation passes, proceed with full data extraction
+
+            #### **Extraction Rules (only if validation passes):**
             - No missing values – every field must be correctly populated.
             - Ensure calculations are accurate – total_amount = sum(items) + total_tax.
             - When calculating total_amount, use the actual price paid (after discounts), not the original price.
@@ -597,19 +679,24 @@ struct NewExpenseView: View {
 
             #### **Store Name and Logo Search Term:**
             - ALWAYS set the receipt_name field to be the same as the store_name. The store name should be the title of the receipt.
-            - Create a logo_search_term field that contains an optimized search query for finding the store's logo.
-            - The logo_search_term should be the clearest, most recognizable version of the store name by:
-              * Removing location identifiers (e.g., "Walmart Supercenter #1234" → "Walmart")
-              * Removing branch numbers (e.g., "Target Store #0456" → "Target")
-              * Removing unnecessary descriptors (e.g., "McDonald's Restaurant" → "McDonald's")
-              * Using the parent brand name for franchises (e.g., "John's Pizza - Downtown" → "John's Pizza")
-              * Standardizing common abbreviations (e.g., "Taco Bell Express" → "Taco Bell")
+            - Create a logo_search_term field that contains ONLY the core brand name for logo API searches.
+            - The logo_search_term MUST be a generic, widely-recognizable brand identifier by:
+              * Using only the main brand name without any location, store number, or descriptive text
+              * Removing ALL location identifiers (e.g., "Walmart Supercenter #1234" → "Walmart")
+              * Removing ALL branch/store numbers (e.g., "Target Store #0456" → "Target")
+              * Removing ALL descriptors like "Restaurant", "Store", "Market", "Shop" (e.g., "McDonald's Restaurant" → "McDonald's")
+              * Removing ALL location references like street names, cities, "Downtown", "Airport" (e.g., "Starbucks - Main St" → "Starbucks")
+              * Using the parent company name for subsidiaries (e.g., "Taco Bell Express" → "Taco Bell")
+              * Standardizing to the most common brand format (e.g., "McDonald's Corp" → "McDonald's")
+            - CRITICAL: The logo_search_term should be suitable for searching logo APIs and must be a recognizable brand name only.
             - Examples:
-              * "Walmart Supercenter #1234" → logo_search_term: "Walmart"
-              * "Target Store #0456" → logo_search_term: "Target"
-              * "McDonald's - Main St" → logo_search_term: "McDonald's"
-              * "Starbucks Coffee - Airport Terminal" → logo_search_term: "Starbucks"
-              * "7-Eleven #4285" → logo_search_term: "7-Eleven"
+              * "Walmart Supercenter #1234 - Downtown" → logo_search_term: "Walmart"
+              * "Target Store #0456 Main Street" → logo_search_term: "Target"
+              * "McDonald's Restaurant - Airport Terminal" → logo_search_term: "McDonald's"
+              * "Starbucks Coffee Company - Union Square" → logo_search_term: "Starbucks"
+              * "7-Eleven Store #4285 Broadway" → logo_search_term: "7-Eleven"
+              * "CVS Pharmacy #9876" → logo_search_term: "CVS"
+              * "Whole Foods Market - Midtown" → logo_search_term: "Whole Foods"
 
             #### **Item Categorization:**
             Each item must be placed in the most appropriate category:
@@ -643,17 +730,16 @@ struct NewExpenseView: View {
               responseMIMEType: "application/json"
             )
 
-            let model = GenerativeModel(
-                name: "gemini-2.0-flash",
-                apiKey: geminiAPIKey,
-                generationConfig: config,
-                systemInstruction: systemPrompt
-            )
-
             let structuredSchema = """
             {
               "type": "object",
               "properties": {
+                "isValid": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                },
                 "id": {
                   "type": "string"
                 },
@@ -728,22 +814,18 @@ struct NewExpenseView: View {
                 }
               },
               "required": [
-                "total_amount",
-                "total_tax",
-                "currency",
-                "payment_method",
-                "purchase_date",
-                "store_name",
-                "store_address",
-                "receipt_name",
-                "logo_search_term",
-                "items"
+                "isValid"
               ]
             }
             """
 
             let prompt = "Extract all receipt details from this image and return in this format: \(structuredSchema)."
-            let response = try await model.generateContent(prompt, receiptImage)
+            let response = try await aiService.generateContent(
+                prompt: prompt,
+                image: receiptImage,
+                systemInstruction: systemPrompt,
+                config: config
+            )
             print(response.text ?? "No response received")
 
             // TODO: Parse response.text JSON into a Receipt object.
@@ -783,7 +865,22 @@ struct NewExpenseView: View {
                     print("Failed to extract first item from JSON array")
                     return nil
                 }
+            } else if let jsonObject = json as? [String: Any] {
+                // Check if this is a schema wrapper (OpenAI sometimes returns schema format)
+                if let properties = jsonObject["properties"] as? [String: Any] {
+                    print("Detected schema wrapper, extracting properties")
+                    print("Properties keys: \(properties.keys)")
+                    // Extract the actual receipt data from properties
+                    let propertiesData = try JSONSerialization.data(withJSONObject: properties)
+                    receiptData = propertiesData
+                } else {
+                    print("Using original JSON object")
+                    print("JSON keys: \(jsonObject.keys)")
+                    // It's already a single object, use the original data
+                    receiptData = data
+                }
             } else {
+                print("Using original data as fallback")
                 // It's already a single object, use the original data
                 receiptData = data
             }
@@ -791,17 +888,32 @@ struct NewExpenseView: View {
             // Now decode the single receipt object
             let parsedData = try decoder.decode(TemporaryReceipt.self, from: receiptData)
 
+            // Check if validation failed
+            if let isValid = parsedData.isValid, !isValid {
+                print("Receipt validation failed: \(parsedData.message ?? "Invalid receipt")")
+                return nil
+            }
+
             // Calculate total amount if missing by summing items
             let calculatedTotalAmount: Double
             if let totalAmount = parsedData.total_amount {
                 calculatedTotalAmount = totalAmount
+                print("Using provided total amount: \(calculatedTotalAmount)")
             } else {
                 // Sum all item prices
                 calculatedTotalAmount = parsedData.items.reduce(0) { total, item in
+                    print("Adding item: \(item.name) - $\(item.price)")
                     return total + item.price
                 }
-                print("Calculated total amount: \(calculatedTotalAmount)")
+                print("Calculated total amount from items: \(calculatedTotalAmount)")
             }
+
+            print("Parsed data summary:")
+            print("- Store name: \(parsedData.store_name ?? "nil")")
+            print("- Total amount: \(parsedData.total_amount ?? 0)")
+            print("- Items count: \(parsedData.items.count)")
+            print("- Currency: \(parsedData.currency ?? "nil")")
+            print("- Logo search term: \(parsedData.logo_search_term ?? "nil")")
 
             // Set default values for missing fields
             let currentDate = Date()
@@ -888,6 +1000,8 @@ struct NewExpenseView: View {
 
     // Temporary struct to decode the JSON structure before transforming it into a `Receipt` object
     private struct TemporaryReceipt: Codable {
+        var isValid: Bool?
+        var message: String?
         var total_amount: Double?
         var total_tax: Double?
         var currency: String?
@@ -901,24 +1015,38 @@ struct NewExpenseView: View {
 
         // Add coding keys to handle all fields
         enum CodingKeys: String, CodingKey {
-            case total_amount, total_tax, currency, payment_method, purchase_date, store_name, store_address, receipt_name, logo_search_term, items
+            case isValid, message, total_amount, total_tax, currency, payment_method, purchase_date, store_name, store_address, receipt_name, logo_search_term, items
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
 
-            total_amount = try container.decodeIfPresent(Double.self, forKey: .total_amount)
-            total_tax = try container.decodeIfPresent(Double.self, forKey: .total_tax)
-            currency = try container.decodeIfPresent(String.self, forKey: .currency)
-            payment_method = try container.decodeIfPresent(String.self, forKey: .payment_method)
+            // Handle validation fields
+            isValid = try container.decodeIfPresent(Bool.self, forKey: .isValid)
+            message = try container.decodeIfPresent(String.self, forKey: .message)
+
+            // Handle nested values that might be wrapped in schema format
+            total_amount = Self.extractValue(from: container, key: .total_amount)
+            total_tax = Self.extractValue(from: container, key: .total_tax)
+            currency = Self.extractStringValue(from: container, key: .currency)
+            payment_method = Self.extractStringValue(from: container, key: .payment_method)
             purchase_date = try container.decodeIfPresent(Date.self, forKey: .purchase_date)
-            store_name = try container.decodeIfPresent(String.self, forKey: .store_name)
-            store_address = try container.decodeIfPresent(String.self, forKey: .store_address)
-            receipt_name = try container.decodeIfPresent(String.self, forKey: .receipt_name)
-            logo_search_term = try container.decodeIfPresent(String.self, forKey: .logo_search_term)
+            store_name = Self.extractStringValue(from: container, key: .store_name)
+            store_address = Self.extractStringValue(from: container, key: .store_address)
+            receipt_name = Self.extractStringValue(from: container, key: .receipt_name)
+            logo_search_term = Self.extractStringValue(from: container, key: .logo_search_term)
 
             // Items is required, but we'll provide an empty array if missing
             items = try container.decodeIfPresent([TemporaryReceiptItem].self, forKey: .items) ?? []
+        }
+
+        // Helper methods to extract values that might be wrapped in schema format
+        static func extractValue(from container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Double? {
+            return try? container.decodeIfPresent(Double.self, forKey: key)
+        }
+
+        static func extractStringValue(from container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> String? {
+            return try? container.decodeIfPresent(String.self, forKey: key)
         }
     }
 

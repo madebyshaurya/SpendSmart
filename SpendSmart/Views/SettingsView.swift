@@ -160,8 +160,21 @@ struct SettingsView: View {
                             .foregroundColor(.gray)
                     }
                 }
+            }
 
+            // Data Management section
+            Section(header: SectionHeaderView(title: "Data Management", icon: "externaldrive.fill")) {
+                NavigationLink(destination: DataExportView()) {
+                    HStack {
+                        Text("Export Data")
+                            .font(.instrumentSans(size: 16))
 
+                        Spacer()
+
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundColor(.blue)
+                    }
+                }
             }
 
             // Other section
@@ -229,30 +242,36 @@ struct SettingsView: View {
 
     private func checkForUpdates() {
         isCheckingForUpdates = true
+        print("🔄 Starting manual version check...")
 
         Task {
+            print("📱 Current app version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
+            print("📦 Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
+            
             let result = await VersionUpdateManager.shared.checkForUpdates(force: true)
+            print("✅ Version check completed with result: \(result)")
 
             await MainActor.run {
                 isCheckingForUpdates = false
 
                 switch result {
                 case .updateAvailable(let versionInfo):
+                    print("📱 Update available: \(versionInfo.latestVersion)")
                     appState.availableVersion = versionInfo.latestVersion
                     appState.releaseNotes = versionInfo.releaseNotes ?? ""
                     appState.showVersionUpdateAlert = true
                 case .upToDate:
+                    print("✅ App is up to date")
                     updateCheckMessage = "You're using the latest version of SpendSmart!"
                     showUpdateCheckResult = true
-                case .skipped(let version):
-                    updateCheckMessage = "Version \(version) is available, but you previously chose to skip it."
-                    showUpdateCheckResult = true
                 case .remindLater(let date):
+                    print("⏰ Will remind later at \(date)")
                     let formatter = DateFormatter()
                     formatter.dateStyle = .medium
                     updateCheckMessage = "You chose to be reminded later. Next check: \(formatter.string(from: date))"
                     showUpdateCheckResult = true
                 case .error(let error):
+                    print("❌ Version check error: \(error.localizedDescription)")
                     updateCheckMessage = "Unable to check for updates: \(error.localizedDescription)"
                     showUpdateCheckResult = true
                 }

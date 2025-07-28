@@ -16,6 +16,9 @@ class AppState: ObservableObject {
     private let lastVersionCheckKey = "lastVersionCheck"
     private let skippedVersionKey = "skippedVersion"
     private let remindLaterDateKey = "remindLaterDate"
+    private let lastAvailableVersionKey = "lastAvailableVersion"
+    private let lastReleaseNotesKey = "lastReleaseNotes"
+    private let lastActiveDateKey = "lastActiveDate"
 
     @Published var isLoggedIn: Bool = false
     @Published var userEmail: String = ""
@@ -53,6 +56,7 @@ class AppState: ObservableObject {
     @Published var showVersionUpdateAlert: Bool = false
     @Published var availableVersion: String = ""
     @Published var releaseNotes: String = ""
+    @Published var isCheckingForUpdates: Bool = false
 
     init() {
         // Load onboarding state
@@ -70,6 +74,13 @@ class AppState: ObservableObject {
                 self.userEmail = "Guest User"
                 self.guestUserId = userId
             }
+        }
+        
+        // Restore version update state if available
+        if let storedVersion = UserDefaults.standard.string(forKey: lastAvailableVersionKey),
+           let storedNotes = UserDefaults.standard.string(forKey: lastReleaseNotesKey) {
+            self.availableVersion = storedVersion
+            self.releaseNotes = storedNotes
         }
     }
 
@@ -95,6 +106,12 @@ class AppState: ObservableObject {
         showVersionUpdateAlert = false
         availableVersion = ""
         releaseNotes = ""
+        isCheckingForUpdates = false
+        
+        // Clear stored version info
+        UserDefaults.standard.removeObject(forKey: lastAvailableVersionKey)
+        UserDefaults.standard.removeObject(forKey: lastReleaseNotesKey)
+        UserDefaults.standard.removeObject(forKey: lastActiveDateKey)
     }
 
     // Set up guest mode
@@ -138,5 +155,33 @@ class AppState: ObservableObject {
 
     func clearRemindLater() {
         UserDefaults.standard.removeObject(forKey: remindLaterDateKey)
+    }
+    
+    // New version update helper methods
+    func shouldCheckForUpdates() -> Bool {
+        // Check if we've been in background for more than 30 minutes
+        if let lastActiveDate = UserDefaults.standard.object(forKey: lastActiveDateKey) as? Date {
+            let timeInBackground = Date().timeIntervalSince(lastActiveDate)
+            return timeInBackground > 30 * 60 // 30 minutes
+        }
+        return false
+    }
+    
+    func updateLastActiveDate() {
+        UserDefaults.standard.set(Date(), forKey: lastActiveDateKey)
+    }
+    
+    func storeVersionInfo(version: String, notes: String) {
+        UserDefaults.standard.set(version, forKey: lastAvailableVersionKey)
+        UserDefaults.standard.set(notes, forKey: lastReleaseNotesKey)
+        self.availableVersion = version
+        self.releaseNotes = notes
+    }
+    
+    func clearStoredVersionInfo() {
+        UserDefaults.standard.removeObject(forKey: lastAvailableVersionKey)
+        UserDefaults.standard.removeObject(forKey: lastReleaseNotesKey)
+        self.availableVersion = ""
+        self.releaseNotes = ""
     }
 }

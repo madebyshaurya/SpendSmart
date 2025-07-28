@@ -10,11 +10,15 @@ import SwiftUI
 /// Custom alert view for version updates that matches the app's design language
 struct VersionUpdateAlert: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
     
     let versionInfo: VersionInfo
     let onAction: (VersionUpdateAction) -> Void
     
     @State private var showReleaseNotes = false
+    @State private var isUpdating = false
+    @State private var showError = false
+    @State private var errorMessage = ""
     
     var body: some View {
         ZStack {
@@ -33,6 +37,7 @@ struct VersionUpdateAlert: View {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 50))
                         .foregroundColor(.blue)
+                        .symbolEffect(.bounce, options: .repeating, value: isUpdating)
                     
                     Text("Update Available")
                         .font(.instrumentSans(size: 22, weight: .semibold))
@@ -57,11 +62,14 @@ struct VersionUpdateAlert: View {
                             Spacer()
                             
                             Button(action: {
-                                showReleaseNotes.toggle()
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    showReleaseNotes.toggle()
+                                }
                             }) {
                                 Image(systemName: showReleaseNotes ? "chevron.up" : "chevron.down")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(.blue)
+                                    .rotationEffect(.degrees(showReleaseNotes ? 0 : 180))
                             }
                         }
                         
@@ -74,6 +82,7 @@ struct VersionUpdateAlert: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .frame(maxHeight: 120)
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
                     }
                     .padding(.horizontal, 24)
@@ -84,56 +93,45 @@ struct VersionUpdateAlert: View {
                 VStack(spacing: 12) {
                     // Update Now button
                     Button(action: {
-                        onAction(.updateNow)
+                        handleUpdateNow()
                     }) {
                         HStack {
+                            if isUpdating {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .padding(.trailing, 8)
+                            }
                             Spacer()
-                            Text("Update Now")
+                            Text(isUpdating ? "Updating..." : "Update Now")
                                 .font(.instrumentSans(size: 16, weight: .medium))
                                 .foregroundColor(.white)
                             Spacer()
                         }
                         .padding(.vertical, 14)
-                        .background(Color.blue)
+                        .background(isUpdating ? Color.blue.opacity(0.7) : Color.blue)
                         .cornerRadius(10)
                     }
+                    .disabled(isUpdating)
                     
-                    // Secondary actions
-                    HStack(spacing: 12) {
-                        // Remind Later button
-                        Button(action: {
-                            onAction(.remindLater)
-                        }) {
-                            HStack {
-                                Spacer()
-                                Text("Remind Later")
-                                    .font(.instrumentSans(size: 14, weight: .medium))
-                                    .foregroundColor(.blue)
-                                Spacer()
-                            }
-                            .padding(.vertical, 10)
-                            .background(Color.clear)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.blue, lineWidth: 1)
-                            )
+                    // Remind Later button
+                    Button(action: {
+                        onAction(.remindLater)
+                    }) {
+                        HStack {
+                            Spacer()
+                            Text("Remind Later")
+                                .font(.instrumentSans(size: 14, weight: .medium))
+                                .foregroundColor(.blue)
+                            Spacer()
                         }
-                        
-                        // Skip Version button
-                        Button(action: {
-                            onAction(.skipVersion)
-                        }) {
-                            HStack {
-                                Spacer()
-                                Text("Skip")
-                                    .font(.instrumentSans(size: 14, weight: .medium))
-                                    .foregroundColor(.gray)
-                                Spacer()
-                            }
-                            .padding(.vertical, 10)
-                            .background(Color.clear)
-                        }
+                        .padding(.vertical, 10)
+                        .background(Color.clear)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.blue, lineWidth: 1)
+                        )
                     }
+                    .disabled(isUpdating)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 24)
@@ -145,6 +143,35 @@ struct VersionUpdateAlert: View {
                     .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
             )
             .padding(.horizontal, 40)
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
+    }
+    
+    private func handleUpdateNow() {
+        isUpdating = true
+        
+        // Check if we have a valid App Store URL
+        guard let urlString = versionInfo.appStoreURL,
+              let url = URL(string: urlString) else {
+            errorMessage = "Could not open the App Store. Please try again later."
+            showError = true
+            isUpdating = false
+            return
+        }
+        
+        // Open the App Store
+        UIApplication.shared.open(url) { success in
+            isUpdating = false
+            if success {
+                onAction(.updateNow)
+            } else {
+                errorMessage = "Could not open the App Store. Please try again later."
+                showError = true
+            }
         }
     }
 }

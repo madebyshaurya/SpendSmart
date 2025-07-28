@@ -12,6 +12,8 @@ import UIKit
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @State private var isShowingError = false
+    @State private var errorMessage = ""
 
     var body: some View {
         Group {
@@ -95,17 +97,54 @@ struct ContentView: View {
                 }
             }
         )
+        .alert("Error", isPresented: $isShowingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
     }
 
     private func handleVersionUpdateAction(_ action: VersionUpdateAction) {
         let versionUpdateManager = VersionUpdateManager.shared
+        
+        // Store current version info before clearing
+        let currentVersion = appState.availableVersion
+        let currentNotes = appState.releaseNotes
+        
+        // Handle the action
         versionUpdateManager.handleUserAction(action, for: appState.availableVersion)
 
         // Dismiss the alert
         appState.showVersionUpdateAlert = false
 
         // Clear the version update state
-        appState.availableVersion = ""
-        appState.releaseNotes = ""
+        appState.clearStoredVersionInfo()
+        
+        // If there was an error opening the App Store, show an error
+        if action == .updateNow {
+            Task {
+                do {
+                    let versionInfo = try await versionUpdateManager.fetchLatestVersionInfo()
+                    if let urlString = versionInfo.appStoreURL,
+                       let url = URL(string: urlString) {
+                        await MainActor.run {
+                            UIApplication.shared.open(url) { success in
+                                if !success {
+                                    // Restore version info and show error
+                                    appState.storeVersionInfo(version: currentVersion, notes: currentNotes)
+                                    errorMessage = "Could not open the App Store. Please try again later."
+                                    isShowingError = true
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    // Restore version info and show error
+                    appState.storeVersionInfo(version: currentVersion, notes: currentNotes)
+                    errorMessage = "Could not check for updates. Please try again later."
+                    isShowingError = true
+                }
+            }
+        }
     }
 }
