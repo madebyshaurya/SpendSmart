@@ -7,7 +7,6 @@
 
 import Foundation
 import UIKit
-import GoogleGenerativeAI
 import Vision
 
 class ReceiptValidationService {
@@ -43,7 +42,7 @@ class ReceiptValidationService {
             Be strict in your validation. If the image is blurry, doesn't contain clear text, or is not a receipt at all (e.g., a random photo, screenshot, etc.), mark it as invalid.
             """
 
-            let config = GenerationConfig(
+            let config = AIService.GenerationConfig(
                 temperature: 0.2,
                 topP: 0.95,
                 topK: 40,

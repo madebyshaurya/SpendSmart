@@ -580,9 +580,12 @@ struct HistoryView: View {
 
     func fetchReceipts() async {
         // Check if we're in guest mode (using local storage)
+        print("🔄 [HistoryView] Starting fetchReceipts...")
         if appState.useLocalStorage {
+            print("💾 [HistoryView] Using local storage mode")
             // Get receipts from local storage
             let localReceipts = LocalStorageService.shared.getReceipts()
+            print("💾 [HistoryView] Retrieved \(localReceipts.count) receipts from local storage")
 
             // Pre-fetch logos for receipts using enhanced method
             for receipt in localReceipts {
@@ -599,38 +602,19 @@ struct HistoryView: View {
             withAnimation(.easeInOut(duration: 0.5)) {
                 receipts = localReceipts
             }
+            print("✅ [HistoryView] Local receipts loaded successfully")
             return
         }
 
-        // If not in guest mode, fetch from Supabase
+        // If not in guest mode, fetch from backend API
+        print("🌐 [HistoryView] Using remote Supabase mode")
+        print("🔐 [HistoryView] User logged in: \(appState.isLoggedIn)")
+        print("📧 [HistoryView] User email: \(appState.userEmail)")
+        
         do {
-            let response = try await supabase
-                .from("receipts")
-                .select()
-                .execute()
-
-            // Debug: Print fetched JSON data
-            print("Fetched Data: \(String(data: response.data, encoding: .utf8) ?? "No Data")")
-
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .custom { decoder in
-                let container = try decoder.singleValueContainer()
-                let dateString = try container.decode(String.self)
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.timeZone = TimeZone(secondsFromGMT: 0)
-                if let date = formatter.date(from: dateString) {
-                    return date
-                }
-                throw DecodingError.dataCorruptedError(
-                    in: container,
-                    debugDescription: "Cannot decode date: \(dateString)"
-                )
-            }
-
-            let fetchedReceipts = try decoder.decode([Receipt].self, from: response.data)
-            print("Decoded Receipts: \(fetchedReceipts.count)")
+            print("📡 [HistoryView] Calling supabase.fetchReceipts...")
+            let fetchedReceipts = try await supabase.fetchReceipts(page: 1, limit: 1000)
+            print("✅ [HistoryView] Fetched \(fetchedReceipts.count) receipts from Supabase")
 
             // Pre-fetch logos for receipts using enhanced method
             for receipt in fetchedReceipts {
@@ -648,7 +632,12 @@ struct HistoryView: View {
                 receipts = fetchedReceipts
             }
         } catch {
-            print("Error fetching receipts: \(error.localizedDescription)")
+            print("❌ [HistoryView] Error fetching receipts: \(error.localizedDescription)")
+            print("❌ [HistoryView] Error type: \(type(of: error))")
+            if let nsError = error as NSError? {
+                print("❌ [HistoryView] Error domain: \(nsError.domain), code: \(nsError.code)")
+                print("❌ [HistoryView] Error userInfo: \(nsError.userInfo)")
+            }
         }
     }
 
@@ -1235,30 +1224,13 @@ struct EnhancedReceiptCard: View {
                     return
                 }
 
-                // If not in guest mode, delete from Supabase
+                // If not in guest mode, delete via backend API
                 do {
-                    // Delete from Supabase
-                    let response = try await supabase
-                        .from("receipts")
-                        .delete()
-                        .eq("id", value: receipt.id)
-                        .execute()
-
-                    // Check if delete was successful
-                    if response.status == 200 || response.status == 204 {
-                        print("Receipt deleted successfully: \(receipt.id)")
-                        // Call the onDelete callback to update the UI
-                        await MainActor.run {
-                            onDelete?(receipt)
-                        }
-                    } else {
-                        print("Failed to delete receipt: \(response.status)")
-                        // Revert animation if delete failed
-                        await MainActor.run {
-                            withAnimation {
-                                isDeleting = false
-                            }
-                        }
+                    try await supabase.deleteReceipt(id: receipt.id.uuidString)
+                    print("Receipt deleted successfully: \(receipt.id)")
+                    // Call the onDelete callback to update the UI
+                    await MainActor.run {
+                        onDelete?(receipt)
                     }
                 } catch {
                     print("Error deleting receipt: \(error.localizedDescription)")

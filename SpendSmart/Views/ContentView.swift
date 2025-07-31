@@ -18,12 +18,14 @@ struct ContentView: View {
     var body: some View {
         Group {
             if appState.isLoggedIn {
-                if appState.isFirstLogin && !appState.isOnboardingComplete {
-                    // Show onboarding for first-time users after account creation
+                if appState.isForceUpdateRequired {
+                    ForcedUpdateBlockingView()
+                        .environmentObject(appState)
+                        .onAppear { appState.showVersionUpdateAlert = true }
+                } else if appState.isFirstLogin && !appState.isOnboardingComplete {
                     OnboardingView()
                         .environmentObject(appState)
                 } else {
-                    // Main app interface
                     TabView {
                         DashboardView(email: appState.userEmail)
                             .environmentObject(appState)
@@ -53,29 +55,6 @@ struct ContentView: View {
                 }
             } else {
                 LaunchScreen(appState: appState)
-                    .task {
-                        // Check for existing session on app launch
-                        if appState.isGuestUser && appState.guestUserId != nil {
-                            // Guest mode already restored from UserDefaults in AppState init
-                            print("✅ Using guest mode from UserDefaults")
-                        } else if let user = supabase.auth.currentUser {
-                            // Check if this is a guest user by looking at the email
-                            let isGuest = user.email?.contains("guest") ?? false
-
-                            if isGuest {
-                                // Restore guest mode
-                                appState.enableGuestMode(userId: user.id)
-                                print("✅ Restored guest session from Supabase for user: \(user.id)")
-                            } else {
-                                // Regular user
-                                appState.userEmail = user.email ?? "No Email"
-                                appState.isLoggedIn = true
-                                print("✅ Restored regular user session for: \(user.email ?? "unknown")")
-                            }
-                        } else {
-                            print("No existing session found")
-                        }
-                    }
             }
         }
         .overlay(
@@ -86,7 +65,8 @@ struct ContentView: View {
                         versionInfo: VersionInfo(
                             currentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0",
                             latestVersion: appState.availableVersion,
-                            releaseNotes: appState.releaseNotes.isEmpty ? nil : appState.releaseNotes
+                            releaseNotes: appState.releaseNotes.isEmpty ? nil : appState.releaseNotes,
+                            isForced: appState.isForceUpdateRequired
                         ),
                         onAction: { action in
                             handleVersionUpdateAction(action)
@@ -106,19 +86,14 @@ struct ContentView: View {
 
     private func handleVersionUpdateAction(_ action: VersionUpdateAction) {
         let versionUpdateManager = VersionUpdateManager.shared
+        let isForced = appState.isForceUpdateRequired
         
-        // Store current version info before clearing
-        let currentVersion = appState.availableVersion
-        let currentNotes = appState.releaseNotes
-        
-        // Handle the action
-        versionUpdateManager.handleUserAction(action, for: appState.availableVersion)
+        versionUpdateManager.handleUserAction(action, for: appState.availableVersion, isForced: isForced)
 
-        // Dismiss the alert
+        if isForced && action != .updateNow { return }
+
         appState.showVersionUpdateAlert = false
-
-        // Clear the version update state
-        appState.clearStoredVersionInfo()
+        if !isForced { appState.clearStoredVersionInfo() }
         
         // If there was an error opening the App Store, show an error
         if action == .updateNow {
@@ -131,7 +106,7 @@ struct ContentView: View {
                             UIApplication.shared.open(url) { success in
                                 if !success {
                                     // Restore version info and show error
-                                    appState.storeVersionInfo(version: currentVersion, notes: currentNotes)
+                                    appState.storeVersionInfo(version: appState.availableVersion, notes: appState.releaseNotes)
                                     errorMessage = "Could not open the App Store. Please try again later."
                                     isShowingError = true
                                 }
@@ -140,7 +115,7 @@ struct ContentView: View {
                     }
                 } catch {
                     // Restore version info and show error
-                    appState.storeVersionInfo(version: currentVersion, notes: currentNotes)
+                    appState.storeVersionInfo(version: appState.availableVersion, notes: appState.releaseNotes)
                     errorMessage = "Could not check for updates. Please try again later."
                     isShowingError = true
                 }

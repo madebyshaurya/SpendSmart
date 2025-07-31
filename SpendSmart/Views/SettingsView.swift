@@ -56,7 +56,7 @@ struct SettingsView: View {
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(.gray)
                     }
-                } else if let user = supabase.auth.currentUser {
+                } else if let user = supabase.currentUser {
                     HStack {
                         Text("Email")
                             .font(.instrumentSans(size: 16))
@@ -69,7 +69,7 @@ struct SettingsView: View {
                         Text("User ID")
                             .font(.instrumentSans(size: 16))
                         Spacer()
-                        Text(user.id.uuidString)
+                        Text(user.id)
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(.gray)
                     }
@@ -260,6 +260,12 @@ struct SettingsView: View {
                     appState.availableVersion = versionInfo.latestVersion
                     appState.releaseNotes = versionInfo.releaseNotes ?? ""
                     appState.showVersionUpdateAlert = true
+                case .forcedUpdateRequired(let versionInfo):
+                    print("🚨 Forced update required: \(versionInfo.latestVersion)")
+                    appState.availableVersion = versionInfo.latestVersion
+                    appState.releaseNotes = versionInfo.releaseNotes ?? ""
+                    appState.isForceUpdateRequired = true
+                    appState.showVersionUpdateAlert = true
                 case .upToDate:
                     print("✅ App is up to date")
                     updateCheckMessage = "You're using the latest version of SpendSmart!"
@@ -292,56 +298,54 @@ struct SettingsView: View {
             return
         }
 
-        // Otherwise, sign out from Supabase
+        // Otherwise, sign out from both backend API and Supabase
         Task {
+            // Try to sign out from backend API first
             do {
-                try await supabase.auth.signOut()
-                print("✅ Successfully signed out!")
-
-                DispatchQueue.main.async {
-                    appState.resetState()
-                }
+                try await BackendAPIService.shared.signOut()
+                print("✅ Successfully signed out from Backend API!")
             } catch {
-                print("❌ Sign out failed: \(error.localizedDescription)")
+                print("⚠️ Backend API sign out failed: \(error.localizedDescription)")
             }
+            
+            // Also sign out from Supabase (for backward compatibility)
+            do {
+                try await supabase.signOut()
+                print("✅ Successfully signed out from Supabase!")
+            } catch {
+                print("⚠️ Supabase sign out failed: \(error.localizedDescription)")
+            }
+
+            // Reset app state regardless of sign out success
+            DispatchQueue.main.async {
+                appState.resetState()
+            }
+            
+            print("✅ Sign out completed!")
         }
     }
 
     private func deleteAccount() {
-        // If in guest mode, delete the guest user from Supabase and clear local storage
+        // If in guest mode, delete the guest user from backend
         if appState.isGuestUser {
             // Clear local storage
             LocalStorageService.shared.clearAllReceipts()
 
-            // Delete the guest user from Supabase if we have their ID
+            // Delete the guest user from backend if we have their ID
             if let guestUserId = appState.guestUserId {
                 Task {
                     do {
-                        // Use the service role key to delete the user
-                        let supabaseClient = SupabaseClient(
-                            supabaseURL: URL(string: supabaseURL)!,
-                            supabaseKey: supabaseServiceRoleKey
-                        )
-
-                        // First, delete any receipts that might have been saved to Supabase
-                        try await supabase
-                            .from("receipts")
-                            .delete()
-                            .eq("user_id", value: guestUserId)
-                            .execute()
-                        print("✅ Successfully deleted any guest receipts from Supabase!")
-
-                        // Then delete the guest user account
-                        try await supabaseClient.auth.admin.deleteUser(id: guestUserId.uuidString)
-                        print("✅ Successfully deleted guest user from Supabase!")
+                        // Delete guest account via backend (requires service role)
+                        try await supabase.deleteGuestAccount(userId: guestUserId.uuidString)
+                        print("✅ Successfully deleted guest account!")
 
                         // Also sign out from Supabase
-                        try? await supabase.auth.signOut()
+                        try? await supabase.signOut()
                     } catch {
-                        print("❌ Failed to delete guest user from Supabase: \(error.localizedDescription)")
+                        print("❌ Failed to delete guest account: \(error.localizedDescription)")
                     }
 
-                    // Reset app state regardless of whether the Supabase deletion succeeded
+                    // Reset app state regardless of whether the deletion succeeded
                     await MainActor.run {
                         appState.resetState()
                     }
@@ -356,31 +360,12 @@ struct SettingsView: View {
             return
         }
 
-        // Otherwise, delete account from Supabase
+        // Otherwise, delete account from backend
         Task {
             do {
-                guard let user = supabase.auth.currentUser else {
-                    throw NSError(domain: "SpendSmart", code: 400, userInfo: [NSLocalizedDescriptionKey: "No current user found"])
-                }
-
-                let supabaseClient = SupabaseClient(
-                    supabaseURL: URL(string: supabaseURL)!,
-                    supabaseKey: supabaseServiceRoleKey
-                )
-
-                // First, delete all receipts associated with this user
-                try await supabase
-                    .from("receipts")
-                    .delete()
-                    .eq("user_id", value: user.id)
-                    .execute()
-                print("✅ Successfully deleted all user receipts!")
-
-                // Then delete the user account
-                try await supabaseClient.auth.admin.deleteUser(id: user.id.uuidString)
+                // Delete account via backend (requires service role)
+                try await supabase.deleteAccount()
                 print("✅ Successfully deleted account!")
-
-                try await supabase.auth.signOut()
 
                 DispatchQueue.main.async {
                     appState.resetState()

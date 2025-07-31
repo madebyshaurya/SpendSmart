@@ -536,10 +536,14 @@ struct NewExpenseView: View {
         // Check for new AIServiceError first
         if let aiError = error as? AIServiceError {
             switch aiError {
-            case .recentFailure:
+            case .authenticationFailed:
+                return "Authentication failed. Please sign in again."
+            case .rateLimited:
                 return "Service temporarily unavailable. Please try again in a few minutes."
-            case .allKeysFailed:
+            case .serverError:
                 return "Processing service is currently busy. Please try again later."
+            case .requestFailed(let message):
+                return "Request failed: \(message)"
             case .imageProcessingFailed:
                 return "Failed to process image. Please try with a different image."
             case .noResponseContent:
@@ -722,7 +726,7 @@ struct NewExpenseView: View {
             Goal: Fully automate receipt scanning for a seamless user experience. NEVER return null values - use reasonable defaults instead (0 for numbers, empty strings for text, current date for dates). Be aware that items such as paper cups or ketchup may sometimes be free items and may not have any price beside them - use 0.0 for these prices.
             """
 
-            let config = GenerationConfig(
+            let config = AIService.GenerationConfig(
               temperature: 1,
               topP: 0.95,
               topK: 40,
@@ -828,8 +832,7 @@ struct NewExpenseView: View {
             )
             print(response.text ?? "No response received")
 
-            // TODO: Parse response.text JSON into a Receipt object.
-            let parsedReceipt = parseReceipt(from: response.text)  // Implement this parsing function
+            let parsedReceipt = parseReceipt(from: response.text)
             return parsedReceipt
         } catch {
             print("Error extracting data from image: \(error)")
@@ -961,7 +964,11 @@ struct NewExpenseView: View {
                 userId = appState.guestUserId ?? UUID()
             } else {
                 // Use the authenticated user's ID
-                userId = supabase.auth.currentUser?.id ?? UUID()
+                if let currentUser = supabase.currentUser, let userUUID = UUID(uuidString: currentUser.id) {
+                    userId = userUUID
+                } else {
+                    userId = UUID()
+                }
             }
 
             let receipt = Receipt(

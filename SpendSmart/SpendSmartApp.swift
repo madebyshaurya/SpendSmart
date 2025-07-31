@@ -11,12 +11,23 @@ import SwiftUI
 struct SpendSmartApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var versionUpdateManager = VersionUpdateManager.shared
-    
+
     // Add scene phase to track app state
     @Environment(\.scenePhase) private var scenePhase
-    
+
     // Track if we've already checked for updates in this session
     @State private var hasCheckedForUpdates = false
+
+    init() {
+        // Print configuration on app startup
+        print("🚀 [iOS] ===== SPENDMART APP STARTUP =====")
+        print("🔧 [iOS] Environment: \(BackendConfig.shared.isDevelopment ? "Development" : "Production")")
+        print("🔧 [iOS] Backend URL will be determined dynamically")
+        print("🔑 [iOS] Secret Key configured: \(!secretKey.isEmpty)")
+        print("📱 [iOS] App Bundle ID: \(Bundle.main.bundleIdentifier ?? "Unknown")")
+        print("📱 [iOS] App Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown")")
+        print("=======================================")
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -68,34 +79,41 @@ struct SpendSmartApp: App {
 
         switch result {
         case .updateAvailable(let versionInfo):
-            print("📱 Update available: \(versionInfo.latestVersion)")
             appState.availableVersion = versionInfo.latestVersion
             appState.releaseNotes = versionInfo.releaseNotes ?? ""
             appState.showVersionUpdateAlert = true
-            
-            // Store the version info for later use
             UserDefaults.standard.set(versionInfo.latestVersion, forKey: "lastAvailableVersion")
             if let notes = versionInfo.releaseNotes {
                 UserDefaults.standard.set(notes, forKey: "lastReleaseNotes")
             }
             
+        case .forcedUpdateRequired(let versionInfo):
+            appState.availableVersion = versionInfo.latestVersion
+            appState.releaseNotes = versionInfo.releaseNotes ?? ""
+            appState.showVersionUpdateAlert = true
+            appState.isForceUpdateRequired = true
+            UserDefaults.standard.set(versionInfo.latestVersion, forKey: "lastAvailableVersion")
+            UserDefaults.standard.set(true, forKey: "isForceUpdateRequired")
+            if let notes = versionInfo.releaseNotes {
+                UserDefaults.standard.set(notes, forKey: "lastReleaseNotes")
+            }
+            
         case .upToDate:
-            print("✅ App is up to date")
-            // Clear any stored version info
             UserDefaults.standard.removeObject(forKey: "lastAvailableVersion")
             UserDefaults.standard.removeObject(forKey: "lastReleaseNotes")
+            UserDefaults.standard.removeObject(forKey: "isForceUpdateRequired")
+            appState.isForceUpdateRequired = false
             
-        case .remindLater(let date):
-            print("⏰ Will remind later at \(date)")
+        case .remindLater(_):
+            break
             
-        case .error(let error):
-            print("❌ Version check error: \(error.localizedDescription)")
-            // If we have stored version info, we can still show it
+        case .error(_):
             if let storedVersion = UserDefaults.standard.string(forKey: "lastAvailableVersion"),
                let storedNotes = UserDefaults.standard.string(forKey: "lastReleaseNotes") {
                 appState.availableVersion = storedVersion
                 appState.releaseNotes = storedNotes
                 appState.showVersionUpdateAlert = true
+                appState.isForceUpdateRequired = UserDefaults.standard.bool(forKey: "isForceUpdateRequired")
             }
         }
     }

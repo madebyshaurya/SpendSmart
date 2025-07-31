@@ -578,12 +578,8 @@ struct EditReceiptView: View {
                         LocalStorageService.shared.saveReceipts(receipts)
                     }
                 } else {
-                    // Update in Supabase
-                    try await supabase
-                        .from("receipts")
-                        .update(updatedReceipt)
-                        .eq("id", value: updatedReceipt.id)
-                        .execute()
+                    // Update via backend API
+                    _ = try await supabase.updateReceipt(updatedReceipt)
                 }
 
                 // Call onSave callback

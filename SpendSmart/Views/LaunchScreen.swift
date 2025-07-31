@@ -208,13 +208,16 @@ struct LaunchScreen: View {
     }
 
     private func checkForExistingSession() {
-        // Check if there's an active session
-        if let user = supabase.auth.currentUser {
-            DispatchQueue.main.async {
-                appState.userEmail = user.email ?? "No Email"
-                appState.isLoggedIn = true
-            }
+        // Initialize backend detection on app launch
+        Task {
+            let backendStatus = await BackendAPIService.shared.getBackendStatus()
+            print("🌐 [iOS] Backend initialized: \(backendStatus.url)")
+            print("🏠 [iOS] Using localhost: \(backendStatus.isLocalhost)")
         }
+        
+        // Session restoration is now handled centrally in AppState.init()
+        // This just initializes the backend connection
+        print("🔄 [LaunchScreen] Backend initialization completed")
     }
 
     private func handleSignInWithApple(_ authResults: ASAuthorization) {
@@ -227,30 +230,78 @@ struct LaunchScreen: View {
 
         Task {
             do {
-                let session = try await supabase.auth.signInWithIdToken(credentials: .init(provider: .apple, idToken: tokenString))
-
-                print(session.user.id)
-//                self.userId = session.user.id
-
-                if let user = supabase.auth.currentUser {
+                print("🔐 [iOS] Starting Apple Sign-In process...")
+                
+                // Try backend API first (new method)
+                do {
+                    let backendResponse = try await BackendAPIService.shared.signInWithApple(idToken: tokenString)
+                    print("✅ [iOS] Backend API sign-in successful!")
+                    print("👤 [iOS] User ID: \(backendResponse.data.user?.id ?? "No ID")")
+                    print("📧 [iOS] User Email: \(backendResponse.data.user?.email ?? "No Email")")
+                    
                     DispatchQueue.main.async {
+                        print("🔄 [iOS] Updating app state from backend API...")
+                        
                         // Check if this is a new user (first login)
-                        let isNewUser = credential.user == user.id.uuidString && credential.email != nil
-
-                        appState.userEmail = user.email ?? "No Email"
+                        let isNewUser = credential.user == backendResponse.data.user?.id && credential.email != nil
+                        print("🆕 [iOS] Is new user: \(isNewUser)")
+                        
+                        appState.userEmail = backendResponse.data.user?.email ?? "No Email"
+                        print("📧 [iOS] Set userEmail to: \(appState.userEmail)")
+                        
                         appState.isLoggedIn = true
-
+                        appState.isGuestUser = false
+                        appState.useLocalStorage = false
+                        print("✅ [iOS] Set isLoggedIn to: \(appState.isLoggedIn)")
+                        
                         // Set first login flag to trigger onboarding
                         if isNewUser {
                             appState.isFirstLogin = true
+                            print("🎉 [iOS] Set isFirstLogin to: \(appState.isFirstLogin)")
                         }
+                    }
+                    
+                    print("✅ Successfully signed in with Apple via Backend API!")
+                    return
+                    
+                } catch {
+                    print("⚠️ [iOS] Backend API sign-in failed, falling back to Supabase: \(error.localizedDescription)")
+                }
+                
+                // Fallback to Supabase (legacy method)
+                let response = try await supabase.signInWithApple(idToken: tokenString)
+
+                print("🔐 [iOS] Received session from Supabase")
+                print("👤 [iOS] User ID: \(response.data.user?.id ?? "No ID")")
+                print("📧 [iOS] User Email: \(response.data.user?.email ?? "No Email")")
+
+                DispatchQueue.main.async {
+                    print("🔄 [iOS] Updating app state from Supabase...")
+
+                    // Check if this is a new user (first login)
+                    let isNewUser = credential.user == response.data.user?.id && credential.email != nil
+                    print("🆕 [iOS] Is new user: \(isNewUser)")
+
+                    appState.userEmail = response.data.user?.email ?? "No Email"
+                    print("📧 [iOS] Set userEmail to: \(appState.userEmail)")
+
+                    appState.isLoggedIn = true
+                    appState.isGuestUser = false
+                    appState.useLocalStorage = false
+                    print("✅ [iOS] Set isLoggedIn to: \(appState.isLoggedIn)")
+
+                    // Set first login flag to trigger onboarding
+                    if isNewUser {
+                        appState.isFirstLogin = true
+                        print("🎉 [iOS] Set isFirstLogin to: \(appState.isFirstLogin)")
                     }
                 }
 
                 print("✅ Successfully signed in with Apple via Supabase!")
 
             } catch {
-                print("❌ Supabase authentication failed: \(error.localizedDescription)")
+                print("❌ Apple Sign-In failed completely: \(error.localizedDescription)")
+                print("🔍 [iOS] Error details: \(error)")
             }
         }
     }
@@ -271,38 +322,57 @@ struct LaunchScreen: View {
 
     // Enable guest mode
     private func enableGuestMode() {
-        // Create a guest user in Supabase with anonymous sign-in
         Task {
             do {
-                // Try to use a standard email/password approach since anonymous auth might not be enabled
-                let randomNum = Int.random(in: 10000...99999)
-                let guestEmail = "guest\(randomNum)@spend-smart.co"
-                let guestPassword = "Guest123!_\(randomNum)"
+                // Try backend API first (new method)
+                do {
+                    let backendResponse = try await BackendAPIService.shared.createGuestAccount()
+                    print("✅ [iOS] Created guest user via backend API with ID: \(backendResponse.data.user?.id ?? "No ID")")
+                    
+                    // Enable guest mode in app state with the user ID
+                    DispatchQueue.main.async {
+                        if let userId = backendResponse.data.user?.id {
+                            appState.enableGuestMode(userId: UUID(uuidString: userId) ?? UUID())
+                        } else {
+                            appState.enableGuestMode()
+                        }
+                        
+                        // Set first login flag to trigger onboarding for new guest users
+                        appState.isFirstLogin = true
+                    }
+                    
+                    print("✅ Successfully created guest account via Backend API!")
+                    return
+                    
+                } catch {
+                    print("⚠️ [iOS] Backend API guest creation failed, falling back to Supabase: \(error.localizedDescription)")
+                }
+                
+                // Fallback to Supabase (legacy method)
+                let response = try await supabase.createGuestAccount()
 
-                // Create a session with email/password
-                let session = try await supabase.auth.signUp(
-                    email: guestEmail,
-                    password: guestPassword,
-                    data: ["is_guest": true] // Add metadata to mark as guest user
-                )
-
-                print("✅ Created guest user with ID: \(session.user.id)")
+                print("✅ Created guest user via Supabase with ID: \(response.data.user?.id ?? "No ID")")
 
                 // Enable guest mode in app state with the user ID
                 DispatchQueue.main.async {
-                    appState.enableGuestMode(userId: session.user.id)
+                    if let userId = response.data.user?.id {
+                        appState.enableGuestMode(userId: UUID(uuidString: userId) ?? UUID())
+                    } else {
+                        appState.enableGuestMode()
+                    }
 
                     // Set first login flag to trigger onboarding for new guest users
                     appState.isFirstLogin = true
                 }
 
             } catch {
-                print("❌ Failed to create guest user: \(error.localizedDescription)")
+                print("❌ Failed to create guest user completely: \(error.localizedDescription)")
 
                 // Try a different approach - create a local-only guest mode
                 print("Falling back to local-only guest mode")
                 DispatchQueue.main.async {
                     appState.enableGuestMode()
+                    appState.isFirstLogin = true
                 }
             }
         }

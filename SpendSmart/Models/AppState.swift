@@ -57,22 +57,66 @@ class AppState: ObservableObject {
     @Published var availableVersion: String = ""
     @Published var releaseNotes: String = ""
     @Published var isCheckingForUpdates: Bool = false
+    @Published var isForceUpdateRequired: Bool = false
 
     init() {
         // Load onboarding state
         self.isOnboardingComplete = UserDefaults.standard.bool(forKey: isOnboardingCompleteKey)
         self.isFirstLogin = UserDefaults.standard.bool(forKey: isFirstLoginKey)
 
-        // Try to restore guest mode from UserDefaults
+        // Comprehensive session restoration
+        print("🔄 [AppState] Starting session restoration...")
+        
+        // 1. Check for guest mode from UserDefaults first
         if UserDefaults.standard.bool(forKey: isGuestUserKey) {
             if let userIdString = UserDefaults.standard.string(forKey: guestUserIdKey),
                let userId = UUID(uuidString: userIdString) {
-                print("🔄 Restoring guest mode from UserDefaults with ID: \(userId)")
+                print("✅ [AppState] Restoring guest mode from UserDefaults with ID: \(userId)")
                 self.isLoggedIn = true
                 self.isGuestUser = true
                 self.useLocalStorage = true
                 self.userEmail = "Guest User"
                 self.guestUserId = userId
+            }
+        }
+        // 2. Check for backend API session (new authentication method)
+        else if BackendAPIService.shared.isAuthenticated() {
+            print("✅ [AppState] Restoring backend API session")
+            let userEmail = UserDefaults.standard.string(forKey: "backend_user_email") ?? "Authenticated User"
+            self.isLoggedIn = true
+            self.isGuestUser = false
+            self.useLocalStorage = false
+            self.userEmail = userEmail
+            print("✅ [AppState] Restored backend session for: \(userEmail)")
+        }
+        // 3. Fallback to Supabase session check (for backward compatibility)
+        else {
+            Task { @MainActor in
+                if let user = await getCurrentSupabaseUser() {
+                    print("✅ [AppState] Restoring Supabase session")
+                    
+                    // Check if this is a guest user by looking at the email
+                    let isGuest = user.email?.contains("guest") ?? false
+                    
+                    if isGuest {
+                        // Restore guest mode from Supabase
+                        if let userId = UUID(uuidString: user.id) {
+                            self.enableGuestMode(userId: userId)
+                        } else {
+                            self.enableGuestMode()
+                        }
+                        print("✅ [AppState] Restored guest session from Supabase for user: \(user.id)")
+                    } else {
+                        // Regular user
+                        self.userEmail = user.email ?? "No Email"
+                        self.isLoggedIn = true
+                        self.isGuestUser = false
+                        self.useLocalStorage = false
+                        print("✅ [AppState] Restored regular user session for: \(user.email ?? "unknown")")
+                    }
+                } else {
+                    print("🔍 [AppState] No existing session found")
+                }
             }
         }
         
@@ -81,7 +125,13 @@ class AppState: ObservableObject {
            let storedNotes = UserDefaults.standard.string(forKey: lastReleaseNotesKey) {
             self.availableVersion = storedVersion
             self.releaseNotes = storedNotes
+            self.isForceUpdateRequired = UserDefaults.standard.bool(forKey: "isForceUpdateRequired")
         }
+    }
+    
+    // Helper method to get current Supabase user asynchronously
+    private func getCurrentSupabaseUser() async -> CustomUser? {
+        return await SupabaseManager.shared.getCurrentUser()
     }
 
     // Reset app state
@@ -101,17 +151,23 @@ class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: isGuestUserKey)
         UserDefaults.standard.removeObject(forKey: guestUserIdKey)
         UserDefaults.standard.removeObject(forKey: isFirstLoginKey)
+        
+        // Clear backend API session data
+        UserDefaults.standard.removeObject(forKey: "backend_auth_token")
+        UserDefaults.standard.removeObject(forKey: "backend_user_email")
 
         // Reset version update state
         showVersionUpdateAlert = false
         availableVersion = ""
         releaseNotes = ""
         isCheckingForUpdates = false
+        isForceUpdateRequired = false
         
         // Clear stored version info
         UserDefaults.standard.removeObject(forKey: lastAvailableVersionKey)
         UserDefaults.standard.removeObject(forKey: lastReleaseNotesKey)
         UserDefaults.standard.removeObject(forKey: lastActiveDateKey)
+        UserDefaults.standard.removeObject(forKey: "isForceUpdateRequired")
     }
 
     // Set up guest mode
@@ -181,7 +237,9 @@ class AppState: ObservableObject {
     func clearStoredVersionInfo() {
         UserDefaults.standard.removeObject(forKey: lastAvailableVersionKey)
         UserDefaults.standard.removeObject(forKey: lastReleaseNotesKey)
+        UserDefaults.standard.removeObject(forKey: "isForceUpdateRequired")
         self.availableVersion = ""
         self.releaseNotes = ""
+        self.isForceUpdateRequired = false
     }
 }

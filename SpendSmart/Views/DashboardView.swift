@@ -25,57 +25,57 @@ struct DashboardView: View {
     @State private var showMapView = false
     // MARK: - Fetch Receipts
     func fetchUserReceipts() async {
+        print("🔄 [DashboardView] Starting fetchUserReceipts...")
         isLoading = true  // Start loading
-        defer { isLoading = false }  // Ensure loading stops after fetch
+        defer { 
+            isLoading = false 
+            print("🔄 [DashboardView] Finished fetchUserReceipts, isLoading set to false")
+        }
 
         // Check if we're in guest mode (using local storage)
         if appState.useLocalStorage {
+            print("💾 [DashboardView] Using local storage mode")
             // Get receipts from local storage
             let receipts = LocalStorageService.shared.getReceipts()
+            print("💾 [DashboardView] Retrieved \(receipts.count) receipts from local storage")
             withAnimation {
                 currentUserReceipts = receipts
             }
+            print("✅ [DashboardView] Local receipts loaded successfully")
             return
         }
 
-        // If not in guest mode, fetch from Supabase
-        guard let userId = supabase.auth.currentUser?.id else { return }
+        print("🌐 [DashboardView] Using remote Supabase mode")
+        print("🔐 [DashboardView] User logged in: \(appState.isLoggedIn)")
+        print("📧 [DashboardView] User email: \(appState.userEmail)")
 
+        // If not in guest mode, fetch from backend API
         do {
-            let response = try await supabase
-                .from("receipts")
-                .select()
-                .eq("user_id", value: userId)
-                .execute()
-
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .custom { decoder in
-                let container = try decoder.singleValueContainer()
-                let dateString = try container.decode(String.self)
-
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.timeZone = TimeZone(secondsFromGMT: 0)
-
-                if let date = formatter.date(from: dateString) {
-                    return date
-                }
-
-                throw DecodingError.dataCorruptedError(
-                    in: container,
-                    debugDescription: "Cannot decode date: \(dateString)"
-                )
+            print("📡 [DashboardView] Calling supabase.fetchReceipts...")
+            let receipts = try await supabase.fetchReceipts(page: 1, limit: 1000)
+            print("✅ [DashboardView] Successfully received \(receipts.count) receipts from Supabase")
+            
+            // Log first few receipts for debugging
+            for (index, receipt) in receipts.prefix(3).enumerated() {
+                print("📋 [DashboardView] Receipt \(index + 1): \(receipt.store_name) - $\(receipt.total_amount) (\(receipt.items.count) items)")
             }
-
-            let receipts = try decoder.decode([Receipt].self, from: response.data)
+            
             withAnimation {
                 currentUserReceipts = receipts
             }
-        } catch let error as DecodingError {
-            print("❌ Decoding Error fetching receipts: \(error)")
+            print("✅ [DashboardView] Receipts successfully assigned to currentUserReceipts")
         } catch {
-            print("❌ General Error fetching receipts: \(error.localizedDescription)")
+            print("❌ [DashboardView] Error fetching receipts: \(error.localizedDescription)")
+            print("❌ [DashboardView] Error type: \(type(of: error))")
+            if let nsError = error as NSError? {
+                print("❌ [DashboardView] Error domain: \(nsError.domain), code: \(nsError.code)")
+                print("❌ [DashboardView] Error userInfo: \(nsError.userInfo)")
+            }
+            
+            // Set empty array on error so UI doesn't show stale data
+            withAnimation {
+                currentUserReceipts = []
+            }
         }
     }
 
@@ -90,20 +90,9 @@ struct DashboardView: View {
             return
         }
 
-        // If not in guest mode, save to Supabase
+        // If not in guest mode, save via backend API
         do {
-            let encoder = JSONEncoder()
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-            dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-            dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
-            encoder.dateEncodingStrategy = .formatted(dateFormatter)
-
-            try await supabase
-                .from("receipts")
-                .insert(newReceipt)
-                .execute()
-
+            _ = try await supabase.createReceipt(newReceipt)
             print("✅ Receipt inserted successfully!")
         } catch {
             print("❌ Error inserting receipt: \(error.localizedDescription)")
@@ -124,21 +113,9 @@ struct DashboardView: View {
             return
         }
 
-        // If not in guest mode, update in Supabase
+        // If not in guest mode, update via backend API
         do {
-            let encoder = JSONEncoder()
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-            dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-            dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
-            encoder.dateEncodingStrategy = .formatted(dateFormatter)
-
-            try await supabase
-                .from("receipts")
-                .update(updatedReceipt)
-                .eq("id", value: updatedReceipt.id)
-                .execute()
-
+            _ = try await supabase.updateReceipt(updatedReceipt)
             print("✅ Receipt updated successfully!")
         } catch {
             print("❌ Error updating receipt: \(error.localizedDescription)")

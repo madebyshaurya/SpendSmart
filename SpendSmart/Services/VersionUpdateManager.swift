@@ -83,17 +83,17 @@ final class VersionUpdateManager: ObservableObject, @unchecked Sendable {
                 print("✅ Version check completed at \(lastCheckDate?.description ?? "unknown")")
                 
                 if versionInfo.isUpdateAvailable {
-                    // Check if user chose "remind later" and it's not time yet
+                    if versionInfo.isForced {
+                        return .forcedUpdateRequired(versionInfo)
+                    }
+                    
                     if let remindDate = UserDefaults.standard.object(forKey: "remindLaterDate") as? Date,
                        Date() < remindDate {
-                        print("⏰ Will remind later at \(remindDate)")
                         return .remindLater(remindDate)
                     }
                     
-                    print("📱 Update available: \(versionInfo.latestVersion)")
                     return .updateAvailable(versionInfo)
                 } else {
-                    print("✅ App is up to date")
                     return .upToDate
                 }
             } catch {
@@ -112,19 +112,15 @@ final class VersionUpdateManager: ObservableObject, @unchecked Sendable {
         return await currentTask?.value ?? .error(VersionCheckError.networkError)
     }
     
-    /// Handle user action on version update alert
-    /// - Parameters:
-    ///   - action: The action taken by the user
-    ///   - version: The version being acted upon
-    func handleUserAction(_ action: VersionUpdateAction, for version: String) {
+    func handleUserAction(_ action: VersionUpdateAction, for version: String, isForced: Bool = false) {
         switch action {
         case .updateNow:
             openAppStore()
         case .remindLater:
-            let remindDate = Date().addingTimeInterval(remindLaterInterval)
-            UserDefaults.standard.set(remindDate, forKey: "remindLaterDate")
+            if !isForced {
+                UserDefaults.standard.set(Date().addingTimeInterval(remindLaterInterval), forKey: "remindLaterDate")
+            }
         case .dismiss:
-            // Do nothing, just dismiss
             break
         }
     }
@@ -168,6 +164,8 @@ final class VersionUpdateManager: ObservableObject, @unchecked Sendable {
             print("❌ Error: Empty bundle ID")
             throw VersionCheckError.invalidBundleId
         }
+        
+        let forcedUpdateInfo = await checkForcedUpdate()
         
         let urlString = "\(iTunesSearchURL)?bundleId=\(bundleId)"
         guard let url = URL(string: urlString) else {
@@ -222,13 +220,19 @@ final class VersionUpdateManager: ObservableObject, @unchecked Sendable {
                 let dateFormatter = ISO8601DateFormatter()
                 let releaseDate = dateFormatter.date(from: appResult.currentVersionReleaseDate)
                 
+                var releaseNotes = appResult.releaseNotes
+                if forcedUpdateInfo.isForced, let forceMessage = forcedUpdateInfo.message {
+                    releaseNotes = releaseNotes != nil ? "⚠️ \(forceMessage)\n\n\(releaseNotes!)" : "⚠️ \(forceMessage)"
+                }
+                
                 return VersionInfo(
                     currentVersion: currentVersion,
                     latestVersion: appResult.version,
-                    releaseNotes: appResult.releaseNotes,
+                    releaseNotes: releaseNotes,
                     releaseDate: releaseDate,
                     appStoreURL: appResult.trackViewUrl,
-                    minimumOSVersion: appResult.minimumOsVersion
+                    minimumOSVersion: appResult.minimumOsVersion,
+                    isForced: forcedUpdateInfo.isForced
                 )
             } catch {
                 print("❌ Error decoding response: \(error)")
@@ -238,6 +242,30 @@ final class VersionUpdateManager: ObservableObject, @unchecked Sendable {
             print("❌ Network error: \(error)")
             throw VersionCheckError.networkError
         }
+    }
+    
+    private func checkForcedUpdate() async -> (isForced: Bool, message: String?) {
+        do {
+            let backendURL = await BackendConfig.shared.activeBackendURL
+            guard let url = URL(string: "\(backendURL)/api/version/check-forced-update") else {
+                return (false, nil)
+            }
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "bundleId": bundleId,
+                "currentVersion": currentVersion
+            ])
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                return (json["isForced"] as? Bool ?? false, json["message"] as? String)
+            }
+        } catch {}
+        
+        return (false, nil)
     }
     
     // MARK: - Private Methods

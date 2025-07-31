@@ -79,86 +79,13 @@ class DataExportService: ObservableObject {
             // Fetch from local storage
             receipts = LocalStorageService.shared.getReceipts()
         } else {
-            // Fetch from Supabase
-            guard let userId = supabase.auth.currentUser?.id else {
-                throw ExportError.noDataToExport
-            }
-
+            // Fetch from backend API via SupabaseManager
             do {
-                let response = try await supabase
-                    .from("receipts")
-                    .select()
-                    .eq("user_id", value: userId)
-                    .execute()
-
-                let decoder = JSONDecoder()
-
-                // Use a custom date decoding strategy to handle multiple date formats
-                decoder.dateDecodingStrategy = .custom { decoder in
-                    let container = try decoder.singleValueContainer()
-                    let dateString = try container.decode(String.self)
-
-                    // Try multiple date formats
-                    let formatters: [Any] = [
-                        // ISO8601 with fractional seconds
-                        {
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'"
-                            return formatter
-                        }(),
-                        // ISO8601 without fractional seconds
-                        {
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
-                            return formatter
-                        }(),
-                        // ISO8601 with timezone
-                        {
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-                            return formatter
-                        }(),
-                        // Standard ISO8601
-                        ISO8601DateFormatter(),
-                        // Supabase timestamp format
-                        {
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSS"
-                            return formatter
-                        }(),
-                        // Simple date format
-                        {
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-                            return formatter
-                        }()
-                    ]
-
-                    for formatter in formatters {
-                        if let iso8601Formatter = formatter as? ISO8601DateFormatter {
-                            if let date = iso8601Formatter.date(from: dateString) {
-                                return date
-                            }
-                        } else if let dateFormatter = formatter as? DateFormatter {
-                            if let date = dateFormatter.date(from: dateString) {
-                                return date
-                            }
-                        }
-                    }
-
-                    throw DecodingError.dataCorrupted(
-                        DecodingError.Context(
-                            codingPath: decoder.codingPath,
-                            debugDescription: "Cannot decode date string \(dateString)"
-                        )
-                    )
-                }
-
-                // Decode the response data
-                receipts = try decoder.decode([Receipt].self, from: response.data)
+                // Fetch all receipts using the backend API
+                receipts = try await supabase.fetchReceipts(page: 1, limit: 1000) // Get all receipts
             } catch {
-                // If Supabase fetch fails, throw a more specific error
-                print("❌ Supabase fetch error: \(error)")
+                // If backend fetch fails, throw a more specific error
+                print("❌ Backend fetch error: \(error)")
                 throw ExportError.unknownError("Failed to fetch data from cloud storage: \(error.localizedDescription)")
             }
         }

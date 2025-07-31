@@ -18,14 +18,16 @@ struct VersionInfo: Equatable {
     let isUpdateAvailable: Bool
     let appStoreURL: String?
     let minimumOSVersion: String?
+    let isForced: Bool // New: indicates if this update is mandatory
     
-    init(currentVersion: String, latestVersion: String, releaseNotes: String? = nil, releaseDate: Date? = nil, appStoreURL: String? = nil, minimumOSVersion: String? = nil) {
+    init(currentVersion: String, latestVersion: String, releaseNotes: String? = nil, releaseDate: Date? = nil, appStoreURL: String? = nil, minimumOSVersion: String? = nil, isForced: Bool = false) {
         self.currentVersion = currentVersion
         self.latestVersion = latestVersion
         self.releaseNotes = releaseNotes
         self.releaseDate = releaseDate
         self.appStoreURL = appStoreURL
         self.minimumOSVersion = minimumOSVersion
+        self.isForced = isForced
         self.isUpdateAvailable = Self.compareVersions(current: currentVersion, latest: latestVersion)
     }
     
@@ -113,6 +115,7 @@ enum VersionUpdateAction: Equatable {
 /// Result of a version check operation
 enum VersionCheckResult: Equatable {
     case updateAvailable(VersionInfo)
+    case forcedUpdateRequired(VersionInfo) // New: indicates a mandatory update
     case upToDate
     case error(Error)
     case remindLater(Date) // User chose remind later, with date
@@ -122,6 +125,8 @@ enum VersionCheckResult: Equatable {
         case (.upToDate, .upToDate):
             return true
         case (.updateAvailable(let lhsInfo), .updateAvailable(let rhsInfo)):
+            return lhsInfo == rhsInfo
+        case (.forcedUpdateRequired(let lhsInfo), .forcedUpdateRequired(let rhsInfo)):
             return lhsInfo == rhsInfo
         case (.remindLater(let lhsDate), .remindLater(let rhsDate)):
             return lhsDate == rhsDate
