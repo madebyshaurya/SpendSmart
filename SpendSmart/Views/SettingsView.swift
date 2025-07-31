@@ -56,29 +56,41 @@ struct SettingsView: View {
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(.gray)
                     }
-                } else if let user = supabase.currentUser {
+                    
+                    if let guestUserId = appState.guestUserId {
+                        HStack {
+                            Text("Guest ID")
+                                .font(.instrumentSans(size: 16))
+                            Spacer()
+                            Text(guestUserId.uuidString.prefix(8) + "...")
+                                .font(.instrumentSans(size: 16))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                } else if appState.isLoggedIn {
                     HStack {
                         Text("Email")
                             .font(.instrumentSans(size: 16))
                         Spacer()
-                        Text(user.email ?? "No Email")
+                        Text(appState.userEmail.isEmpty ? "No Email" : appState.userEmail)
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(.gray)
                     }
-                    HStack {
-                        Text("User ID")
-                            .font(.instrumentSans(size: 16))
-                        Spacer()
-                        Text(user.id)
-                            .font(.instrumentSans(size: 16))
-                            .foregroundColor(.gray)
-                    }
-
+                    
                     HStack {
                         Text("Storage")
-                            .font(.instrumentSans(size: 16))
+                        .font(.instrumentSans(size: 16))
                         Spacer()
                         Text("Cloud")
+                        .font(.instrumentSans(size: 16))
+                        .foregroundColor(.gray)
+                    }
+                } else {
+                    HStack {
+                        Text("Status")
+                            .font(.instrumentSans(size: 16))
+                        Spacer()
+                        Text("Not Signed In")
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(.gray)
                     }
