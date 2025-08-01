@@ -69,7 +69,7 @@ class AIService {
                 config: configDict
             )
 
-            return AIResponse(text: response.data.response)
+            return AIResponse(text: response.response.text)
 
         } catch let error as BackendAPIError {
             // Convert backend API errors to AIService errors
@@ -96,10 +96,10 @@ class AIService {
             let response = try await backendAPI.validateReceipt(image: image)
 
             return ReceiptValidationResult(
-                isValid: response.data.isValid,
-                confidence: response.data.confidence,
-                message: response.data.message,
-                missingElements: response.data.missingElements
+                isValid: response.isValid,
+                confidence: response.confidence,
+                message: response.message,
+                missingElements: response.missingElements
             )
 
         } catch let error as BackendAPIError {

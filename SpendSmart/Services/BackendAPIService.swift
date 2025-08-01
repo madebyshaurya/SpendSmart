@@ -604,24 +604,14 @@ struct ReceiptData: Codable {
 }
 
 struct AIContentResponse: Codable {
-    let success: Bool
-    let data: AIContentData
-    let message: String?
-    let timestamp: String
+    let response: AIContentData
 }
 
 struct AIContentData: Codable {
-    let response: String
+    let text: String
 }
 
 struct ReceiptValidationResponse: Codable {
-    let success: Bool
-    let data: ReceiptValidationData
-    let message: String?
-    let timestamp: String
-}
-
-struct ReceiptValidationData: Codable {
     let isValid: Bool
     let confidence: Double
     let message: String
