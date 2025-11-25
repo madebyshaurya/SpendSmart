@@ -21,46 +21,12 @@ class ReceiptValidationService {
     /// - Parameter image: The image to validate
     /// - Returns: A tuple containing a boolean indicating if the image is a valid receipt and a message
     func validateReceiptImage(_ image: UIImage) async -> (isValid: Bool, message: String) {
-        // First try the AI-based validation
+        // Use the new single receipt processing endpoint
         do {
-            let systemPrompt = """
-            You are a receipt validation system. Your task is to determine if an image contains a valid receipt.
-
-            A valid receipt should have most of these elements:
-            1. Store/merchant name
-            2. Date of purchase
-            3. List of items purchased with prices
-            4. Total amount
-            5. Payment information
-
-            Respond with a JSON object containing:
-            1. "isValid": boolean (true if it's a valid receipt, false otherwise)
-            2. "confidence": number between 0 and 1 (how confident you are in your assessment)
-            3. "message": string (explanation of why it is or isn't a valid receipt)
-            4. "missingElements": array of strings (what elements are missing if it's not valid)
-
-            Be strict in your validation. If the image is blurry, doesn't contain clear text, or is not a receipt at all (e.g., a random photo, screenshot, etc.), mark it as invalid.
-            """
-
-            let config = AIService.GenerationConfig(
-                temperature: 0.2,
-                topP: 0.95,
-                topK: 40,
-                maxOutputTokens: 2048,
-                responseMIMEType: "application/json"
-            )
-
-            let prompt = "Analyze this image and determine if it contains a valid receipt. Respond with the JSON format specified in your instructions."
-            let response = try await aiService.generateContent(
-                prompt: prompt,
-                image: image,
-                systemInstruction: systemPrompt,
-                config: config
-            )
-
-            if let jsonString = response.text {
-                return parseValidationResponse(jsonString)
-            }
+            let result = try await aiService.processReceipt(image: image)
+            
+            return (result.isValid, result.message ?? "Receipt validation completed")
+            
         } catch {
             print("Error validating receipt with AI: \(error)")
             // Fall through to the fallback method
@@ -142,24 +108,5 @@ class ReceiptValidationService {
         let (isValid, message) = await validateReceiptImage(images[0])
 
         return (isValid, message)
-    }
-
-    private func parseValidationResponse(_ jsonString: String) -> (isValid: Bool, message: String) {
-        guard let data = jsonString.data(using: .utf8) else {
-            return (false, "Failed to process validation response")
-        }
-
-        do {
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let isValid = json["isValid"] as? Bool,
-               let message = json["message"] as? String {
-                return (isValid, message)
-            } else {
-                return (false, "Invalid validation response format")
-            }
-        } catch {
-            print("Error parsing validation response: \(error)")
-            return (false, "Error parsing validation response")
-        }
     }
 }

@@ -35,7 +35,7 @@ class ImageStorageService {
             print("Trying to upload image using backend API...")
             let response = try await backendAPI.uploadImage(resizedImage)
             print("Successfully uploaded image via backend API")
-            return response.data.url
+            return response.url
         } catch {
             print("Backend API upload failed: \(error.localizedDescription)")
             print("Falling back to local storage...")
@@ -54,7 +54,7 @@ class ImageStorageService {
             print("Trying to upload \(images.count) images using backend API...")
             let response = try await backendAPI.uploadImages(resizedImages)
             print("Successfully uploaded \(images.count) images via backend API")
-            return response.data.urls
+            return response.images.compactMap { $0.success ? $0.url : nil }
         } catch {
             print("Backend API bulk upload failed: \(error.localizedDescription)")
             print("Falling back to individual local storage...")

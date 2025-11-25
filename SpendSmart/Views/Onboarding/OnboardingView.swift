@@ -3,22 +3,21 @@
 //  SpendSmart
 //
 //  Created by Shaurya Gupta on 2025-05-01.
+//  Enhanced with mesh gradients, personalization, and Supabase integration
 //
 
 import SwiftUI
+import Lottie
 
 struct OnboardingView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appState: AppState
-
-    // Onboarding state
-    @State private var showCurrencySelection = false
-
-    // Currency selection
+    @StateObject private var onboardingState = OnboardingState()
     @StateObject private var currencyManager = CurrencyManager.shared
-    @State private var selectedCurrency = CurrencyManager.shared.preferredCurrency
+    
+    // Currency selection state
     @State private var searchText = ""
-
+    
     // Filtered currencies based on search
     private var filteredCurrencies: [CurrencyManager.CurrencyInfo] {
         if searchText.isEmpty {
@@ -30,248 +29,427 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            // Background
-            BackgroundGradientView()
-
+            Color(uiColor: .systemBackground).ignoresSafeArea()
+            
             VStack(spacing: 0) {
-                // Header
-                Text("SpendSmart")
-                    .font(.instrumentSerifItalic(size: 42))
-                    .bold()
-                    .foregroundColor(colorScheme == .dark ? .white : Color(hex: "1E293B"))
-                    .padding(.top, 60)
-                    .padding(.bottom, 20)
-
-                if showCurrencySelection {
-                    // Currency selection screen
-                    currencySelectionView
-                } else {
-                    // Feature overview screen
-                    featureOverviewView
+                // Step content in a centered column for iPad/large screens
+                ZStack {
+                    stepContent()
+                        .id(onboardingState.currentStep)
+                        .transition(stepTransition)
                 }
-
-                Spacer()
-
-                // Navigation
-                if showCurrencySelection {
-                    // Complete button
-                    Button {
-                        // Save currency preference
-                        currencyManager.preferredCurrency = selectedCurrency
-
-                        // Complete onboarding
-                        completeOnboarding()
-                    } label: {
-                        Text("Get Started")
-                            .font(.instrumentSans(size: 18, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.blue)
-                            )
-                            .padding(.horizontal, 40)
-                    }
-                    .padding(.bottom, 30)
-                } else {
-                    // Continue to currency selection button
-                    Button {
-                        withAnimation {
-                            showCurrencySelection = true
-                        }
-                    } label: {
-                        Text("Continue")
-                            .font(.instrumentSans(size: 18, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.blue)
-                            )
-                            .padding(.horizontal, 40)
-                    }
-                    .padding(.bottom, 30)
-                }
+                .animation(.easeInOut(duration: 0.28), value: onboardingState.currentStep)
+                .frame(maxWidth: 520)
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 16)
+        }
+        .useInstrumentSans()
+        .safeAreaInset(edge: .top) { Color.clear.frame(height: 20) }
+        .safeAreaInset(edge: .bottom) {
+            navigationButtons()
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 16)
+                .background(Color.clear)
+        }
+        .alert("Error", isPresented: $onboardingState.showError) {
+            Button("OK") { }
+        } message: {
+            Text(onboardingState.errorMessage)
         }
     }
 
-    // Feature overview view
-    private var featureOverviewView: some View {
-        VStack(spacing: 30) {
-            // App icon
-            Image(systemName: "chart.pie.fill")
-                .font(.system(size: 80))
-                .foregroundColor(.blue)
-                .padding()
-                .background(
-                    Circle()
-                        .fill(Color.blue.opacity(0.1))
-                        .frame(width: 150, height: 150)
-                )
-
-            // Title
-            Text("Welcome to SpendSmart")
-                .font(.instrumentSans(size: 28, weight: .semibold))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-
-            // Features description
-            VStack(alignment: .leading, spacing: 16) {
-                OnboardingFeatureRow(icon: "chart.bar.fill", title: "Track Your Spending", description: "Monitor your expenses and understand your spending habits with intuitive visualizations.")
-
-                OnboardingFeatureRow(icon: "doc.text.viewfinder", title: "Manage Receipts", description: "Capture and organize receipts in one place for easy access and reference.")
-
-                OnboardingFeatureRow(icon: "map.fill", title: "Spending Map", description: "Visualize where your money goes with an interactive map of your purchase locations.")
-            }
-            .padding(.horizontal, 30)
-
-            Spacer()
+    // Step content based on current onboarding step
+    @ViewBuilder
+    private func stepContent() -> some View {
+        switch onboardingState.currentStep {
+        case .welcome:
+            welcomeStep()
+        case .appearance:
+            appearanceStep()
+        case .discovery:
+            discoveryStep()
+        case .usageReason:
+            usageReasonStep()
+        case .spendingGoals:
+            spendingGoalsStep()
+        case .budgetRange:
+            budgetRangeStep()
+        case .categories:
+            categoriesStep()
+        case .currency:
+            currencySelectionStep()
+        case .personalization:
+            personalizationStep()
+        case .completion:
+            completionStep()
         }
-        .transition(.opacity)
     }
-
-    // Currency selection view
-    private var currencySelectionView: some View {
-        VStack(spacing: 20) {
-            Text("Select Your Currency")
-                .font(.instrumentSans(size: 24, weight: .semibold))
-                .padding(.bottom, 5)
-
-            Text("Choose the currency you use most often")
-                .font(.instrumentSans(size: 16))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-                .padding(.bottom, 10)
-
-            // Search field
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-
-                TextField("Search currencies", text: $searchText)
-                    .font(.instrumentSans(size: 16))
-
-                if !searchText.isEmpty {
-                    Button(action: {
-                        searchText = ""
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white.opacity(0.8))
-                    .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+    
+    private func welcomeStep() -> some View {
+        VStack(spacing: 0) {
+            OnboardingWelcomeCard(
+                title: onboardingState.currentStep.title,
+                subtitle: onboardingState.currentStep.subtitle,
+                features: OnboardingFeature.defaultFeatures,
+                showLogo: false
             )
             .padding(.horizontal, 20)
+        }
+    }
+    
+    private func appearanceStep() -> some View {
+        VStack(spacing: 0) {
+            StepProgressHeader(
+                currentStep: onboardingState.currentStep.rawValue + 1,
+                totalSteps: OnboardingStep.totalSteps,
+                title: onboardingState.currentStep.title,
+                subtitle: onboardingState.currentStep.subtitle
+            ) {
+                onboardingState.previousStep()
+            }
 
-            // Currency list
+            VStack(spacing: 12) {
+                OnboardingSelectionCard(
+                    item: AppState.Appearance.system,
+                    isSelected: onboardingState.appearanceSelection == .system,
+                    title: "System",
+                    icon: "iphone"
+                ) {
+                    onboardingState.appearanceSelection = .system
+                    appState.appearanceSelection = .system
+                }
+                OnboardingSelectionCard(
+                    item: AppState.Appearance.light,
+                    isSelected: onboardingState.appearanceSelection == .light,
+                    title: "Light",
+                    icon: "sun.max.fill"
+                ) {
+                    onboardingState.appearanceSelection = .light
+                    appState.appearanceSelection = .light
+                }
+                OnboardingSelectionCard(
+                    item: AppState.Appearance.dark,
+                    isSelected: onboardingState.appearanceSelection == .dark,
+                    title: "Dark",
+                    icon: "moon.fill"
+                ) {
+                    onboardingState.appearanceSelection = .dark
+                    appState.appearanceSelection = .dark
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 32)
+        }
+        .bottomSafeAreaFade()
+    }
+
+    private func discoveryStep() -> some View {
+        VStack(spacing: 0) {
+            StepProgressHeader(
+                currentStep: onboardingState.currentStep.rawValue + 1,
+                totalSteps: OnboardingStep.totalSteps,
+                title: onboardingState.currentStep.title,
+                subtitle: onboardingState.currentStep.subtitle
+            ) {
+                onboardingState.previousStep()
+            }
+
             ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(filteredCurrencies, id: \.code) { currencyInfo in
-                        currencyListItem(currencyInfo)
+                LazyVStack(spacing: 12) {
+                    ForEach(ReferralSource.allCases, id: \.self) { source in
+                        OnboardingSelectionCard(
+                            item: source,
+                            isSelected: onboardingState.referralSource == source,
+                            title: source.displayName,
+                            icon: source.icon
+                        ) {
+                            onboardingState.selectReferral(source)
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
+                .padding(.top, 32)
             }
-            .padding(.top, 10)
         }
-        .transition(.opacity)
+        .bottomSafeAreaFade()
     }
 
-    // Currency list item
-    private func currencyListItem(_ currencyInfo: CurrencyManager.CurrencyInfo) -> some View {
-        Button(action: {
-            selectedCurrency = currencyInfo.code
-        }) {
-            HStack {
-                // Currency code and symbol
-                HStack(spacing: 8) {
-                    Text(currencyInfo.code)
-                        .font(.instrumentSans(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+    private func usageReasonStep() -> some View {
+        VStack(spacing: 0) {
+            StepProgressHeader(
+                currentStep: onboardingState.currentStep.rawValue + 1,
+                totalSteps: OnboardingStep.totalSteps,
+                title: onboardingState.currentStep.title,
+                subtitle: onboardingState.currentStep.subtitle
+            ) { onboardingState.previousStep() }
 
-                    Text(currencyInfo.symbol)
-                        .font(.instrumentSans(size: 16))
-                        .foregroundColor(.secondary)
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(AppUsageReason.allCases, id: \.self) { reason in
+                        OnboardingSelectionCard(
+                            item: reason,
+                            isSelected: onboardingState.appUsageReason == reason,
+                            title: reason.displayName,
+                            icon: reason.icon
+                        ) { onboardingState.selectUsageReason(reason) }
+                    }
                 }
-                .frame(width: 80, alignment: .leading)
-
-                // Currency name
-                Text(currencyInfo.name)
-                    .font(.instrumentSans(size: 16))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
-                    .lineLimit(1)
-
-                Spacer()
-
-                // Selection indicator
-                if selectedCurrency == currencyInfo.code {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.blue)
-                        .font(.system(size: 20))
-                }
+                .padding(.horizontal, 20)
+                .padding(.top, 32)
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(selectedCurrency == currencyInfo.code ?
-                          (colorScheme == .dark ? Color.blue.opacity(0.2) : Color.blue.opacity(0.1)) :
-                          Color.clear)
-            )
         }
-        .buttonStyle(PlainButtonStyle())
+        .bottomSafeAreaFade()
     }
 
-    // Complete onboarding
-    private func completeOnboarding() {
-        // Save onboarding completion status
-        UserDefaults.standard.set(true, forKey: "isOnboardingComplete")
+    private func budgetRangeStep() -> some View {
+        VStack(spacing: 0) {
+            StepProgressHeader(
+                currentStep: onboardingState.currentStep.rawValue + 1,
+                totalSteps: OnboardingStep.totalSteps,
+                title: onboardingState.currentStep.title,
+                subtitle: onboardingState.currentStep.subtitle
+            ) { onboardingState.previousStep() }
 
-        // Update app state
-        withAnimation {
-            appState.isOnboardingComplete = true
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(BudgetRange.allCases, id: \.self) { range in
+                        OnboardingSelectionCard(
+                            item: range,
+                            isSelected: onboardingState.budgetRange == range,
+                            title: range.displayName,
+                            icon: range.icon
+                        ) { onboardingState.selectBudgetRange(range) }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 32)
+            }
         }
+        .bottomSafeAreaFade()
     }
-}
 
-// Feature row component for onboarding
-struct OnboardingFeatureRow: View {
-    let icon: String
-    let title: String
-    let description: String
+    private func spendingGoalsStep() -> some View {
+        VStack(spacing: 0) {
+            StepProgressHeader(
+                currentStep: onboardingState.currentStep.rawValue + 1,
+                totalSteps: OnboardingStep.totalSteps,
+                title: onboardingState.currentStep.title,
+                subtitle: onboardingState.currentStep.subtitle
+            ) { onboardingState.previousStep() }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 15) {
-            Image(systemName: icon)
-                .font(.system(size: 22))
-                .foregroundColor(.blue)
-                .frame(width: 30)
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(SpendingGoal.allCases, id: \.self) { goal in
+                        OnboardingMultiSelectionCard(
+                            item: goal,
+                            isSelected: onboardingState.selectedSpendingGoals.contains(goal),
+                            title: goal.displayName,
+                            subtitle: nil,
+                            icon: goal.icon,
+                            maxSelections: nil,
+                            currentSelectionCount: onboardingState.selectedSpendingGoals.count
+                        ) { onboardingState.toggleSpendingGoal(goal) }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 32)
+            }
+        }
+        .bottomSafeAreaFade()
+    }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.instrumentSans(size: 18, weight: .medium))
+    private func categoriesStep() -> some View {
+        VStack(spacing: 0) {
+            StepProgressHeader(
+                currentStep: onboardingState.currentStep.rawValue + 1,
+                totalSteps: OnboardingStep.totalSteps,
+                title: onboardingState.currentStep.title,
+                subtitle: onboardingState.currentStep.subtitle
+            ) { onboardingState.previousStep() }
 
-                Text(description)
-                    .font(.instrumentSans(size: 14))
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(ExpenseCategory.primaryOnboardingCategories, id: \.self) { category in
+                        OnboardingMultiSelectionCard(
+                            item: category,
+                            isSelected: onboardingState.selectedCategories.contains(category),
+                            title: category.displayName,
+                            subtitle: nil,
+                            icon: category.icon,
+                            maxSelections: 4,
+                            currentSelectionCount: onboardingState.selectedCategories.count
+                        ) { onboardingState.toggleCategory(category) }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 32)
+            }
+        }
+        .bottomSafeAreaFade()
+    }
+    
+    private func personalizationStep() -> some View {
+        VStack {
+            Spacer()
+            
+            PersonalizationProgress(progress: onboardingState.personalizationProgress)
+            
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+    }
+    
+    private func completionStep() -> some View {
+        VStack(spacing: 40) {
+            Spacer()
+            
+            // Success animation
+            LottieView(animation: .named("success"))
+                .playing(loopMode: .playOnce)
+                .animationSpeed(1.0)
+                .frame(width: 120, height: 120)
+            
+            VStack(spacing: 16) {
+                Text(onboardingState.currentStep.title)
+                    .font(.hierarchyDisplay(level: 1))
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+                
+                Text(onboardingState.currentStep.subtitle ?? "")
+                    .font(.hierarchyBody(emphasis: .medium))
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+            
+            Spacer()
+        }
+    }
+
+    private func currencySelectionStep() -> some View {
+        VStack(spacing: 0) {
+            StepProgressHeader(
+                currentStep: onboardingState.currentStep.rawValue + 1,
+                totalSteps: OnboardingStep.totalSteps,
+                title: onboardingState.currentStep.title,
+                subtitle: onboardingState.currentStep.subtitle
+            ) {
+                onboardingState.previousStep()
+            }
+            
+            VStack(spacing: 20) {
+                // Search field
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+
+                    TextField("Search currencies", text: $searchText)
+                        .font(.hierarchyBody())
+                        .foregroundColor(.primary)
+                        .tint(.primary)
+
+                    if !searchText.isEmpty {
+                        Button(action: {
+                            searchText = ""
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(UIColor.secondarySystemBackground))
+                )
+                .padding(.horizontal, 20)
+                .padding(.top, 32)
+
+                // Currency list
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(filteredCurrencies, id: \.code) { currencyInfo in
+                            currencyListItem(currencyInfo)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+            }
+        }
+        .bottomSafeAreaFade()
+    }
+
+    private func currencyListItem(_ currencyInfo: CurrencyManager.CurrencyInfo) -> some View {
+        OnboardingSelectionCard(
+            item: currencyInfo.code,
+            isSelected: onboardingState.currencyPreference == currencyInfo.code,
+            title: currencyInfo.name,
+            subtitle: "\(currencyInfo.code) · \(currencyInfo.symbol)",
+            icon: "coloncurrencysign.circle"
+        ) {
+            onboardingState.currencyPreference = currencyInfo.code
+        }
+    }
+
+    @ViewBuilder
+    private func navigationButtons() -> some View {
+        VStack(spacing: 16) {
+            if onboardingState.currentStep != .welcome && onboardingState.currentStep != .personalization {
+                OnboardingPrimaryButton(
+                    onboardingState.currentStep == .completion ? "Get Started" : "Next",
+                    isEnabled: onboardingState.canProceed,
+                    isLoading: onboardingState.isProcessing
+                ) {
+                    if onboardingState.currentStep == .completion {
+                        Task {
+                            await completeOnboarding()
+                        }
+                    } else {
+                        // Apply appearance immediately when moving forward from appearance step
+                        if onboardingState.currentStep == .appearance {
+                            // Update global app appearance
+                            appState.appearanceSelection = onboardingState.appearanceSelection
+                        }
+                        onboardingState.nextStep()
+                    }
+                }
+                .padding(.horizontal, 20)
+            } else if onboardingState.currentStep == .welcome {
+                OnboardingPrimaryButton("Get Started") {
+                    onboardingState.nextStep()
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+        .padding(.vertical, 16)
+        .background(Color.clear)
+    }
+    
+    private func completeOnboarding() async {
+        await onboardingState.completeOnboarding()
+        
+        // Update app state on main thread
+        await MainActor.run {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                appState.isOnboardingComplete = true
             }
         }
     }
 }
 
-struct OnboardingView_Previews: PreviewProvider {
-    static var previews: some View {
-        OnboardingView()
-            .environmentObject(AppState())
+// MARK: - Step Transition
+extension OnboardingView {
+    private var stepTransition: AnyTransition {
+        AnyTransition.asymmetric(
+            insertion: .move(edge: .trailing).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        )
     }
+}
+
+#Preview {
+    OnboardingView()
+        .environmentObject(AppState())
 }

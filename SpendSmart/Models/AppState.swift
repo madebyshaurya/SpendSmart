@@ -19,6 +19,9 @@ class AppState: ObservableObject {
     private let lastAvailableVersionKey = "lastAvailableVersion"
     private let lastReleaseNotesKey = "lastReleaseNotes"
     private let lastActiveDateKey = "lastActiveDate"
+    private let appearanceSelectionKey = "appearanceSelection"
+    private let usePlainReceiptColorsKey = "usePlainReceiptColors"
+    private let isHapticsEnabledKey = "isHapticsEnabled"
 
     @Published var isLoggedIn: Bool = false
     @Published var userEmail: String = ""
@@ -59,6 +62,46 @@ class AppState: ObservableObject {
     @Published var isCheckingForUpdates: Bool = false
     @Published var isForceUpdateRequired: Bool = false
 
+    // Appearance
+    enum Appearance: String, CaseIterable, Identifiable, Codable { case system, light, dark; var id: String { rawValue } }
+    @Published var appearanceSelection: Appearance = .system {
+        didSet {
+            UserDefaults.standard.set(appearanceSelection.rawValue, forKey: appearanceSelectionKey)
+        }
+    }
+    // History cards color style
+    @Published var usePlainReceiptColors: Bool = false {
+        didSet {
+            UserDefaults.standard.set(usePlainReceiptColors, forKey: usePlainReceiptColorsKey)
+        }
+    }
+
+    // Haptics
+    @Published var isHapticsEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(isHapticsEnabled, forKey: isHapticsEnabledKey)
+        }
+    }
+
+    // Subscriptions sync toggle (local-only by default; can expand to cloud later)
+    @Published var syncSubscriptionsWithCloud: Bool = false
+
+    // MARK: - Premium State
+    // Premium subscription status and receipt usage tracking
+    @Published var isPremium: Bool = false
+    @Published var premiumEntitlement: PremiumEntitlement?
+    @Published var receiptUsage: ReceiptUsage?
+
+    /// Whether the user can add a new receipt (premium OR under weekly limit)
+    var canAddReceipt: Bool {
+        isPremium || (receiptUsage?.remainingReceipts ?? 0) > 0
+    }
+
+    /// Whether to show the paywall (free tier and limit reached)
+    var shouldShowPaywall: Bool {
+        !isPremium && (receiptUsage?.isLimitReached ?? false)
+    }
+
     init() {
         // Load onboarding state
         self.isOnboardingComplete = UserDefaults.standard.bool(forKey: isOnboardingCompleteKey)
@@ -66,6 +109,13 @@ class AppState: ObservableObject {
 
         // Comprehensive session restoration
         print("🔄 [AppState] Starting session restoration...")
+        
+        // Debug: Check what's stored in UserDefaults
+        let storedEmail = UserDefaults.standard.string(forKey: "backend_user_email")
+        let storedToken = UserDefaults.standard.string(forKey: "backend_auth_token")
+        print("🔍 [AppState] Stored email: \(storedEmail ?? "nil")")
+        print("🔍 [AppState] Stored token: \(storedToken?.prefix(10) ?? "nil")")
+        print("🔍 [AppState] BackendAPIService.isAuthenticated(): \(BackendAPIService.shared.isAuthenticated())")
         
         // 1. Check for guest mode from UserDefaults first
         if UserDefaults.standard.bool(forKey: isGuestUserKey) {
@@ -82,18 +132,56 @@ class AppState: ObservableObject {
         // 2. Check for backend API session (new authentication method)
         else if BackendAPIService.shared.isAuthenticated() {
             print("✅ [AppState] Restoring backend API session")
-            let userEmail = UserDefaults.standard.string(forKey: "backend_user_email") ?? "Authenticated User"
+            
+            // Fetch actual user email from Supabase
+            Task { @MainActor in
+                if let currentUser = await SupabaseManager.shared.getCurrentUser() {
+                    self.userEmail = currentUser.email ?? "Apple ID User"
+                    print("✅ [AppState] Retrieved email from Supabase: \(self.userEmail)")
+                } else {
+                    // Fallback to stored email
+                    let userEmail = UserDefaults.standard.string(forKey: "backend_user_email") ?? "Apple ID User"
+                    self.userEmail = userEmail
+                    print("✅ [AppState] Using stored email: \(userEmail)")
+                }
+            }
+            
             self.isLoggedIn = true
             self.isGuestUser = false
             self.useLocalStorage = false
-            self.userEmail = userEmail
-            print("✅ [AppState] Restored backend session for: \(userEmail)")
+            print("✅ [AppState] Restored backend session")
         }
-        // 3. Fallback to Supabase session check (for backward compatibility)
+        // 3. Check if we have stored backend session data even if not currently authenticated
+        else if let storedEmail = UserDefaults.standard.string(forKey: "backend_user_email"),
+                let storedToken = UserDefaults.standard.string(forKey: "backend_auth_token"),
+                !storedToken.isEmpty {
+            print("✅ [AppState] Restoring backend API session from stored data")
+            
+            // Fetch actual user email from Supabase
+            Task { @MainActor in
+                if let currentUser = await SupabaseManager.shared.getCurrentUser() {
+                    self.userEmail = currentUser.email ?? "Apple ID User"
+                    print("✅ [AppState] Retrieved email from Supabase: \(self.userEmail)")
+                } else {
+                    // Fallback to stored email
+                    self.userEmail = storedEmail
+                    print("✅ [AppState] Using stored email: \(storedEmail)")
+                }
+            }
+            
+            self.isLoggedIn = true
+            self.isGuestUser = false
+            self.useLocalStorage = false
+            print("✅ [AppState] Restored backend session from stored data")
+        }
+        // 4. Fallback to Supabase session check (for backward compatibility)
         else {
             Task { @MainActor in
                 if let user = await getCurrentSupabaseUser() {
                     print("✅ [AppState] Restoring Supabase session")
+                    
+                    // Sync the BackendAPIService authentication token
+                    await BackendAPIService.shared.syncAuthTokenFromSupabase()
                     
                     // Check if this is a guest user by looking at the email
                     let isGuest = user.email?.contains("guest") ?? false
@@ -107,12 +195,12 @@ class AppState: ObservableObject {
                         }
                         print("✅ [AppState] Restored guest session from Supabase for user: \(user.id)")
                     } else {
-                        // Regular user
-                        self.userEmail = user.email ?? "No Email"
+                        // Regular user - use actual email from Supabase
+                        self.userEmail = user.email ?? "Apple ID User"
                         self.isLoggedIn = true
                         self.isGuestUser = false
                         self.useLocalStorage = false
-                        print("✅ [AppState] Restored regular user session for: \(user.email ?? "unknown")")
+                        print("✅ [AppState] Restored regular user session for: \(user.email ?? "Apple ID User")")
                     }
                 } else {
                     print("🔍 [AppState] No existing session found")
@@ -127,6 +215,35 @@ class AppState: ObservableObject {
             self.releaseNotes = storedNotes
             self.isForceUpdateRequired = UserDefaults.standard.bool(forKey: "isForceUpdateRequired")
         }
+
+        // Restore appearance and receipt color preferences
+        if let appearanceRaw = UserDefaults.standard.string(forKey: appearanceSelectionKey),
+           let appearance = Appearance(rawValue: appearanceRaw) {
+            self.appearanceSelection = appearance
+        }
+        self.usePlainReceiptColors = UserDefaults.standard.bool(forKey: usePlainReceiptColorsKey)
+
+        // Restore haptics preference (default: enabled)
+        if UserDefaults.standard.object(forKey: isHapticsEnabledKey) != nil {
+            self.isHapticsEnabled = UserDefaults.standard.bool(forKey: isHapticsEnabledKey)
+        } else {
+            UserDefaults.standard.set(true, forKey: isHapticsEnabledKey)
+            self.isHapticsEnabled = true
+        }
+
+        // MARK: - Premium Status Initialization
+        // Sync premium status and receipt usage on app launch
+        Task { @MainActor in
+            // Only sync if user is logged in (not for logged out state)
+            guard self.isLoggedIn else {
+                print("ℹ️ [AppState] User not logged in, skipping premium sync")
+                return
+            }
+
+            print("🔄 [AppState] Syncing premium status on app launch...")
+            await self.syncPremiumStatus()
+            await self.refreshReceiptUsage()
+        }
     }
     
     // Helper method to get current Supabase user asynchronously
@@ -136,6 +253,9 @@ class AppState: ObservableObject {
 
     // Reset app state
     func resetState() {
+        print("🔄 [AppState] Resetting app state - logging out user")
+        print("👤 [AppState] Previous state - logged in: \(isLoggedIn), guest: \(isGuestUser), email: \(userEmail)")
+        
         isLoggedIn = false
         userEmail = ""
         isGuestUser = false
@@ -160,6 +280,8 @@ class AppState: ObservableObject {
         showVersionUpdateAlert = false
         availableVersion = ""
         releaseNotes = ""
+        
+        print("✅ [AppState] App state reset complete")
         isCheckingForUpdates = false
         isForceUpdateRequired = false
         
@@ -242,4 +364,89 @@ class AppState: ObservableObject {
         self.releaseNotes = ""
         self.isForceUpdateRequired = false
     }
+
+    // MARK: - Premium Methods
+
+    /// Sync premium status from backend
+    /// Call this on app launch and after successful purchase
+    @MainActor
+    func syncPremiumStatus() async {
+        do {
+            let entitlement = try await BackendAPIService.shared.getPremiumStatus()
+            self.isPremium = entitlement.isActive
+            self.premiumEntitlement = entitlement
+
+            print("✅ [AppState] Premium status synced: \(isPremium ? "Premium" : "Free")")
+
+            if let planType = entitlement.planType {
+                print("📊 [AppState] Plan: \(planType)")
+            }
+        } catch {
+            print("❌ [AppState] Failed to sync premium status: \(error.localizedDescription)")
+            // On error, default to free tier (safe fallback)
+            self.isPremium = false
+            self.premiumEntitlement = nil
+        }
+    }
+
+    /// Refresh receipt usage stats from backend
+    /// Call this on app launch and after adding receipts
+    @MainActor
+    func refreshReceiptUsage() async {
+        // Skip for premium users (no limits)
+        if isPremium {
+            self.receiptUsage = nil
+            return
+        }
+
+        do {
+            let usage = try await BackendAPIService.shared.getReceiptUsage()
+            self.receiptUsage = usage
+
+            print("📊 [AppState] Receipt usage: \(usage.receiptsThisWeek)/5 this week")
+
+            // Show warning when approaching limit
+            if usage.receiptsThisWeek == 4 {
+                print("⚠️ [AppState] User approaching weekly limit (4/5)")
+                HapticFeedbackManager.shared.warning()
+            }
+        } catch {
+            print("❌ [AppState] Failed to refresh receipt usage: \(error.localizedDescription)")
+            // On error, assume no usage data available
+            self.receiptUsage = nil
+        }
+    }
+
+    /// Mark that a receipt was added
+    /// Call this AFTER successfully saving a receipt
+    @MainActor
+    func markReceiptAdded() async {
+        // Skip for premium users (no tracking needed)
+        guard !isPremium else {
+            print("ℹ️ [AppState] Premium user - no receipt tracking needed")
+            return
+        }
+
+        do {
+            let usage = try await BackendAPIService.shared.incrementReceiptCount()
+            self.receiptUsage = usage
+
+            print("📈 [AppState] Receipt count incremented: \(usage.receiptsThisWeek)/5")
+
+            // Show warning at 4 receipts
+            if usage.receiptsThisWeek == 4 {
+                print("⚠️ [AppState] User has 1 receipt remaining this week")
+                HapticFeedbackManager.shared.warning()
+            }
+
+            // Show limit reached haptic at 5
+            if usage.receiptsThisWeek >= 5 {
+                print("🚫 [AppState] User has reached weekly limit")
+                HapticFeedbackManager.shared.error()
+            }
+        } catch {
+            print("❌ [AppState] Failed to increment receipt count: \(error.localizedDescription)")
+        }
+    }
 }
+

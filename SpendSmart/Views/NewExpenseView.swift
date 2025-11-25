@@ -11,13 +11,14 @@ import AVFoundation
 import Vision
 import GoogleGenerativeAI
 import Supabase
+import Shimmer
 // Import the receipt validation service
 import Foundation
 // Import the image storage service
 import UIKit
 
 struct NewExpenseView: View {
-    var onReceiptAdded: (Receipt) -> Void
+    let onReceiptAdded: (Receipt) -> Void
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @State private var showImagePicker = false
@@ -32,7 +33,22 @@ struct NewExpenseView: View {
     @State private var currentImageIndex = 0
     @State private var showInvalidReceiptAlert = false
     @State private var invalidReceiptMessage = ""
+    @State private var showPaywall = false
     @EnvironmentObject var appState: AppState
+
+    // Enhanced streaming loading states
+    @State private var streamingProgress: AIStreamingProgress?
+    @State private var animatedProgress: Double = 0.0
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var rotationAngle: Double = 0.0
+    @State private var shimmerOffset: CGFloat = -200
+    @State private var typingText = ""
+    @State private var typingIndex = 0
+    @State private var showTypingIndicator = false
+    
+    // Full-screen processing state
+    @State private var showFullScreenProcessing = false
+    @State private var processingStartTime: Date?
 
     // Use the shared AI service (supports both Gemini and OpenAI)
     private let aiService = AIService.shared
@@ -106,78 +122,103 @@ struct NewExpenseView: View {
 
     var body: some View {
         NavigationView {
-            VStack {
-                if !capturedImages.isEmpty || selectedImage != nil {
-                    // Image carousel or single image display
-                    ZStack {
-                        if !capturedImages.isEmpty {
-                            // Multi-image carousel
-                            TabView(selection: $currentImageIndex) {
-                                ForEach(0..<capturedImages.count, id: \.self) { index in
-                                    Image(uiImage: capturedImages[index])
-                                        .resizable()
-                                        .scaledToFit()
-                                        .cornerRadius(12)
-                                        .padding()
-                                        .tag(index)
-                                }
-                            }
-                            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .automatic))
-                            .frame(height: 300)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(colorScheme == .dark ? Color(hex: "282828") : Color(hex: "F0F0F0"))
-                                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-                            )
-                            .overlay(
-                                // Image counter pill
-                                Text("\(currentImageIndex + 1)/\(capturedImages.count)")
-                                    .font(.instrumentSans(size: 14, weight: .medium))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        Capsule()
-                                            .fill(Color.black.opacity(0.6))
-                                    )
-                                    .padding(8),
-                                alignment: .topTrailing
-                            )
-                        } else if let image = selectedImage {
-                            // Single image display
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .cornerRadius(12)
-                                .padding()
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(colorScheme == .dark ? Color(hex: "282828") : Color(hex: "F0F0F0"))
-                                        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-                                )
-                        }
-                    }
-                    .padding()
-                    .transition(.opacity)
-                } else {
-                    VStack(spacing: 16) {
-                        Image(systemName: "receipt")
-                            .font(.system(size: 64))
-                            .foregroundColor(colorScheme == .dark ? Color(hex: "DDDDDD") : Color(hex: "555555"))
-
-                        Text("Select a Receipt Image")
-                            .font(.instrumentSans(size: 28, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                        Text("Take a photo of your receipt or select one from your gallery")
+            ZStack {
+                BackgroundGradientView()
+                
+                VStack(spacing: 24) {
+                    // Header
+                    VStack(spacing: 8) {
+                        Text("New Expense")
+                            .font(.instrumentSerifItalic(size: 32))
+                            .foregroundColor(.primary)
+                        
+                        Text("Scan a receipt to track your expenses")
                             .font(.instrumentSans(size: 16))
-                            .foregroundColor(colorScheme == .dark ? Color(hex: "AAAAAA") : Color(hex: "666666"))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
+                            .foregroundColor(.secondary)
                     }
-                    .padding(.vertical, 40)
-                    .transition(.opacity)
-                }
+                    .padding(.top, 20)
+                    
+                    if !capturedImages.isEmpty || selectedImage != nil {
+                        // Modern image display
+                        ZStack {
+                            if !capturedImages.isEmpty {
+                                // Multi-image carousel with modern design
+                                TabView(selection: $currentImageIndex) {
+                                    ForEach(0..<capturedImages.count, id: \.self) { index in
+                                        Image(uiImage: capturedImages[index])
+                                            .resizable()
+                                            .scaledToFit()
+                                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                                            .shadow(color: Color.black.opacity(0.2), radius: 15, x: 0, y: 8)
+                                            .padding(20)
+                                            .tag(index)
+                                    }
+                                }
+                                .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+                                .frame(height: 350)
+                                
+                                // Modern counter overlay
+                                VStack {
+                                    HStack {
+                                        Spacer()
+                                        Text("\(currentImageIndex + 1) of \(capturedImages.count)")
+                                            .font(.instrumentSans(size: 14, weight: .semibold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 8)
+                                            .background(.ultraThinMaterial, in: Capsule())
+                                            .padding(.trailing, 20)
+                                            .padding(.top, 10)
+                                    }
+                                    Spacer()
+                                }
+                            } else if let image = selectedImage {
+                                // Single image with modern styling
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                                    .shadow(color: Color.black.opacity(0.2), radius: 15, x: 0, y: 8)
+                                    .padding(20)
+                                    .frame(height: 350)
+                            }
+                        }
+                        .transition(.asymmetric(
+                            insertion: .scale.combined(with: .opacity),
+                            removal: .scale.combined(with: .opacity)
+                        ))
+                    } else {
+                        // Modern empty state
+                        VStack(spacing: 24) {
+                            ZStack {
+                                Circle()
+                                    .fill(.ultraThinMaterial)
+                                    .frame(width: 120, height: 120)
+                                    .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+                                
+                                Image(systemName: "receipt")
+                                    .font(.system(size: 40, weight: .light))
+                                    .foregroundColor(.blue)
+                            }
+
+                            VStack(spacing: 12) {
+                                Text("Ready to Scan")
+                                    .font(.instrumentSans(size: 24, weight: .semibold))
+                                    .foregroundColor(.primary)
+
+                                Text("Tap the camera button below to capture your receipt or choose from gallery")
+                                    .font(.instrumentSans(size: 16))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 40)
+                            }
+                        }
+                        .padding(.vertical, 60)
+                        .transition(.asymmetric(
+                            insertion: .scale.combined(with: .opacity),
+                            removal: .scale.combined(with: .opacity)
+                        ))
+                    }
 
                 if isAddingExpense, let step = progressStep {
                     ZStack {
@@ -212,33 +253,53 @@ struct NewExpenseView: View {
 
                                 // Icon
                                 Image(systemName: step.systemImage)
-                                    .font(.system(size: 40))
+                                    .font(.system(size: 30, weight: .medium))
                                     .foregroundColor(step.color)
-                                    .transition(.scale.combined(with: .opacity))
-                                    .id(step) // Force view recreation for transition
+                                    .scaleEffect(pulseScale)
+                                    .onAppear {
+                                        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                                            pulseScale = 1.2
+                                        }
+                                    }
                             }
-                            .frame(width: 180, height: 180)
+                            .frame(width: 120, height: 120)
 
-                            // Status Text
-                            VStack(spacing: 10) {
-                                Text(step.rawValue)
-                                    .font(.instrumentSans(size: 24, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                            // Step Title (single line to avoid cutoff)
+                            Text(step.rawValue)
+                                .font(.instrumentSans(size: 22, weight: .semibold))
+                                .foregroundColor(step.color)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .multilineTextAlignment(.center)
+                                .shimmering(
+                                    active: true,
+                                    animation: .easeInOut(duration: 2.0).repeatForever(autoreverses: false)
+                                )
 
-                                Text(step.description)
-                                    .font(.instrumentSans(size: 16))
-                                    .foregroundColor(colorScheme == .dark ? Color(hex: "BBBBBB") : Color(hex: "555555"))
-                                    .multilineTextAlignment(.center)
-                                    .transition(.opacity)
-                                    .id(step.description) // Force view recreation for transition
-                            }
-                            .padding(.horizontal, 20)
+                            // Step Description
+                            Text(step.description)
+                                .font(.instrumentSans(size: 14))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .padding(.horizontal, 32)
                         }
-                        .opacity(isAddingExpense ? 1 : 0)
-                        .offset(y: isAddingExpense ? 0 : 50)
-                        .animation(.easeInOut(duration: 0.3), value: isAddingExpense)
+                        .padding(.vertical, 40)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(.ultraThinMaterial)
+                                .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+                        )
+                        .padding(.horizontal, 16)
                     }
                     .transition(.opacity)
+                }
+
+                // Enhanced Streaming Loading View
+                if isAddingExpense, let progress = streamingProgress {
+                    EnhancedStreamingLoadingView(progress: progress)
+                        .transition(.opacity.combined(with: .scale))
                 }
 
                 Spacer()
@@ -253,12 +314,12 @@ struct NewExpenseView: View {
                                 showMultiCamera = true
                                 // Removed first-time guide as requested
                             } label: {
-                                HStack {
-                                    Image(systemName: "camera.viewfinder")
-                                        .font(.system(size: 18))
-                                    Text("Camera")
-                                        .font(.instrumentSans(size: 18, weight: .medium))
-                                }
+                                                                        HStack(spacing: 8) {
+                                            Image(systemName: "camera.viewfinder")
+                                                .font(.system(size: 18, weight: .medium))
+                                            Text("Camera")
+                                                .font(.instrumentSans(size: 18, weight: .medium))
+                                        }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
                                 .background(
@@ -278,12 +339,12 @@ struct NewExpenseView: View {
                             Button {
                                 showImagePicker = true
                             } label: {
-                                HStack {
-                                    Image(systemName: "photo.on.rectangle")
-                                        .font(.system(size: 18))
-                                    Text("Gallery")
-                                        .font(.instrumentSans(size: 18, weight: .medium))
-                                }
+                                                                        HStack(spacing: 8) {
+                                            Image(systemName: "photo.on.rectangle")
+                                                .font(.system(size: 18, weight: .medium))
+                                            Text("Gallery")
+                                                .font(.instrumentSans(size: 18, weight: .medium))
+                                        }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
                                 .background(
@@ -311,112 +372,156 @@ struct NewExpenseView: View {
 
                 if !capturedImages.isEmpty || selectedImage != nil {
                     Button {
+                        // MARK: - Receipt Limit Check
+                        // Check if user can add receipt before processing
+                        guard appState.canAddReceipt else {
+                            print("🚫 [NewExpenseView] Receipt limit reached, showing paywall")
+                            HapticFeedbackManager.shared.warning()
+                            showPaywall = true
+                            return
+                        }
+
                         isAddingExpense = true
                         Task {
                             do {
-                                // Start with unified receipt validation and processing
-                                withAnimation {
-                                    progressStep = .validatingReceipt
-                                }
-
-                                // Show validating state for better UX
-                                try await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
-
-                                withAnimation {
-                                    progressStep = .analyzingReceipt
-                                }
-
-                                // Process the receipt
-                                try await Task.sleep(nanoseconds: 500_000_000)
+                                // Initialize streaming progress
+                                streamingProgress = AIStreamingProgress(
+                                    stage: .initializing,
+                                    progress: 0.0,
+                                    message: "Initializing AI processing...",
+                                    partialText: ""
+                                )
+                                
+                                // Start with initializing stage
+                                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                                
+                                // Update to analyzing stage
+                                streamingProgress = AIStreamingProgress(
+                                    stage: .analyzing,
+                                    progress: 0.2,
+                                    message: "Analyzing receipt image...",
+                                    partialText: ""
+                                )
+                                
+                                try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                                
+                                // Update to extracting stage
+                                streamingProgress = AIStreamingProgress(
+                                    stage: .extracting,
+                                    progress: 0.4,
+                                    message: "Extracting receipt data...",
+                                    partialText: ""
+                                )
 
                                 var receipt: Receipt?
                                 var imageURLs: [String] = []
 
                                 if !capturedImages.isEmpty {
                                     // Process multiple images
-                                    // For now, we'll use the first image for text extraction
                                     receipt = await extractDataFromImage(receiptImage: capturedImages[0])
 
-                                    // Check if validation failed
-                                    if receipt == nil {
-                                        // Show invalid receipt toast
-                                        await MainActor.run {
-                                            toastManager.show(
-                                                message: "Invalid receipt",
-                                                type: .error
+                                    // Update to processing stage
+                                    streamingProgress = AIStreamingProgress(
+                                        stage: .processing,
+                                        progress: 0.6,
+                                        message: "Processing...",
+                                        partialText: ""
+                                    )
+
+                                    // Upload images only if AI processing was successful
+                                    if let _ = receipt {
+                                        for (index, image) in capturedImages.enumerated() {
+                                            let imageURL = await uploadImage(image)
+                                            if imageURL != "placeholder_url" {
+                                                imageURLs.append(imageURL)
+                                            }
+
+                                            // Update progress for each image
+                                            let imageProgress = 0.6 + (0.2 * Double(index + 1) / Double(capturedImages.count))
+                                            streamingProgress = AIStreamingProgress(
+                                                stage: .processing,
+                                                progress: imageProgress,
+                                                message: "Uploading...",
+                                                partialText: ""
                                             )
                                         }
 
-                                        try await Task.sleep(nanoseconds: 1_000_000_000)
-                                        isAddingExpense = false
-                                        progressStep = nil
-                                        return
+                                        // Set all image URLs
+                                        receipt?.image_urls = imageURLs
                                     }
-
-                                    // Only upload images if AI processing was successful
-                                    withAnimation {
-                                        progressStep = .savingToDatabase
-                                    }
-
-                                    // Upload all images
-                                    for (_, image) in capturedImages.enumerated() {
-                                        let imageURL = await uploadImage(image)
-                                        if imageURL != "placeholder_url" {
-                                            imageURLs.append(imageURL)
-                                        }
-
-                                        // Update progress for each image
-                                        withAnimation {
-                                            rotationDegrees += 30
-                                        }
-                                    }
-
-                                    // Set all image URLs
-                                    receipt?.image_urls = imageURLs
                                 } else if let selectedImage = selectedImage {
                                     // Process single image
                                     receipt = await extractDataFromImage(receiptImage: selectedImage)
 
                                     // Check if validation failed
                                     if receipt == nil {
+                                        streamingProgress = AIStreamingProgress(
+                                            stage: .error,
+                                            progress: 1.0,
+                                            message: "Invalid receipt detected",
+                                            partialText: ""
+                                        )
+                                        
                                         // Show invalid receipt toast
                                         await MainActor.run {
                                             toastManager.show(
-                                                message: "Invalid receipt",
-                                                type: .error
+                                                message: "Please try a clearer image or different receipt",
+                                                type: .error,
+                                                duration: 4.0
                                             )
                                         }
 
                                         try await Task.sleep(nanoseconds: 1_000_000_000)
                                         isAddingExpense = false
-                                        progressStep = nil
+                                        streamingProgress = nil
                                         return
                                     }
 
+                                    // Update to processing stage
+                                    streamingProgress = AIStreamingProgress(
+                                        stage: .processing,
+                                        progress: 0.7,
+                                        message: "Uploading receipt image...",
+                                        partialText: ""
+                                    )
+
                                     // Only upload image if AI processing was successful
-                                    withAnimation {
-                                        progressStep = .savingToDatabase
+                                    if let _ = receipt {
+                                        let imageURL = await uploadImage(selectedImage)
+                                        receipt?.image_urls = [imageURL]
                                     }
-
-                                    let imageURL = await uploadImage(selectedImage)
-                                    receipt?.image_urls = [imageURL]
                                 }
 
-                                try await Task.sleep(nanoseconds: 200_000_000)
+                                // Update to validating stage
+                                streamingProgress = AIStreamingProgress(
+                                    stage: .validating,
+                                    progress: 0.9,
+                                    message: "Validating receipt data...",
+                                    partialText: ""
+                                )
 
-                                withAnimation {
-                                    progressStep = .complete
-                                }
+                                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
 
-                                try await Task.sleep(nanoseconds: 400_000_000)
+                                // Complete
+                                streamingProgress = AIStreamingProgress(
+                                    stage: .complete,
+                                    progress: 1.0,
+                                    message: "Receipt processed successfully!",
+                                    partialText: ""
+                                )
+
+                                try await Task.sleep(nanoseconds: 400_000_000) // 0.4 seconds
 
                                 if let receipt = receipt {
                                     onReceiptAdded(receipt)
                                     dismiss()
                                 } else {
-                                    withAnimation {
-                                        progressStep = .error
-                                    }
+                                    streamingProgress = AIStreamingProgress(
+                                        stage: .error,
+                                        progress: 1.0,
+                                        message: "Unable to extract receipt data",
+                                        partialText: ""
+                                    )
 
                                     // Show specific error toast
                                     await MainActor.run {
@@ -429,12 +534,15 @@ struct NewExpenseView: View {
 
                                     try await Task.sleep(nanoseconds: 500_000_000)
                                     isAddingExpense = false
-                                    progressStep = nil
+                                    streamingProgress = nil
                                 }
                             } catch {
-                                withAnimation {
-                                    progressStep = .error
-                                }
+                                streamingProgress = AIStreamingProgress(
+                                    stage: .error,
+                                    progress: 1.0,
+                                    message: "Error processing receipt",
+                                    partialText: ""
+                                )
 
                                 // Show specific error toast based on error type
                                 await MainActor.run {
@@ -448,48 +556,34 @@ struct NewExpenseView: View {
 
                                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                                 isAddingExpense = false
-                                progressStep = nil
+                                streamingProgress = nil
                             }
                         }
                     } label: {
-                        HStack {
-                            Image(systemName: !capturedImages.isEmpty ? "doc.viewfinder" : "plus.circle")
-                                .font(.system(size: 18))
-                            Text(!capturedImages.isEmpty ? "Process Receipt" : "Add Expense")
-                                .font(.spaceGrotesk(size: 18))
+                                                                HStack(spacing: 8) {
+                                            Image(systemName: !capturedImages.isEmpty ? "doc.viewfinder" : "plus.circle")
+                                                .font(.system(size: 18, weight: .medium))
+                                            Text(!capturedImages.isEmpty ? "Process Receipt" : "Add Expense")
+                                                .font(.spaceGrotesk(size: 18, weight: .medium))
 
-                            // Add subtle sparkle icon for Process Receipt
-                            if !capturedImages.isEmpty {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(.white)
-                                    .opacity(0.9)
-                            }
-                        }
+                                            // Add subtle sparkle icon for Process Receipt
+                                            if !capturedImages.isEmpty {
+                                                Image(systemName: "sparkles")
+                                                    .font(.system(size: 16, weight: .medium))
+                                                    .foregroundColor(.white)
+                                                    .opacity(0.9)
+                                                    .shimmering(
+                                                        active: true,
+                                                        animation: .easeInOut(duration: 2.0).repeatForever(autoreverses: true)
+                                                    )
+                                            }
+                                        }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(
-                            ZStack {
-                                // 3D effect with shadow
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(!capturedImages.isEmpty ?
-                                          Color(hex: "6D28D9") : Color.orange.opacity(0.7))
-                                    .offset(y: 3)
-                                    .opacity(0.6)
-
-                                // Main button background
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(!capturedImages.isEmpty ?
-                                          LinearGradient(
-                                            gradient: Gradient(colors: [Color(hex: "8B5CF6"), Color(hex: "6D28D9")]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                          ) : LinearGradient(
-                                            gradient: Gradient(colors: [Color.orange, Color.orange.opacity(0.7)]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                          ))
-                            }
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color.blue.gradient)
+                                .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
                         )
                         .foregroundColor(.white)
                         // Add subtle press animation
@@ -499,6 +593,13 @@ struct NewExpenseView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 20)
                     .disabled(isAddingExpense)
+                    .onTapGesture {
+                        if !capturedImages.isEmpty {
+                            // Show full-screen processing for receipt processing
+                            processingStartTime = Date()
+                            showFullScreenProcessing = true
+                        }
+                    }
                 }
             }
             }
@@ -512,6 +613,10 @@ struct NewExpenseView: View {
             .sheet(isPresented: $showMultiCamera) {
                 MultiImageCaptureView(capturedImages: $capturedImages)
             }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
+                    .environmentObject(appState)
+            }
             .alert("Invalid Receipt", isPresented: $showInvalidReceiptAlert) {
                 Button("OK", role: .cancel) {
                     // Clear images if they're invalid
@@ -521,11 +626,31 @@ struct NewExpenseView: View {
             } message: {
                 Text(invalidReceiptMessage.isEmpty ? "The images you provided don't appear to contain valid receipts. Please try again with clear photos of actual receipts." : invalidReceiptMessage)
             }
+            .fullScreenCover(isPresented: $showFullScreenProcessing) {
+                FullScreenProcessingView(
+                    capturedImages: capturedImages,
+                    onReceiptAdded: onReceiptAdded,
+                    onDismiss: {
+                        showFullScreenProcessing = false
+                        processingStartTime = nil
+                    },
+                    onError: { error in
+                        showFullScreenProcessing = false
+                        processingStartTime = nil
+                        // Show error toast
+                        DispatchQueue.main.async {
+                            // Handle error display
+                        }
+                    }
+                )
+                .environmentObject(appState)
+            }
             .toast(toastManager: toastManager)
         }
+        }
     }
-
-
+    
+    // MARK: - Helper Functions
     func uploadImage(_ image: UIImage) async -> String {
         // Use the ImageStorageService to handle image uploads with fallback options
         return await ImageStorageService.shared.uploadImage(image)
@@ -655,534 +780,559 @@ struct NewExpenseView: View {
     }
 
 
-    func extractDataFromImage(receiptImage: UIImage) async -> Receipt? {
+    // MARK: - AI Data Extraction
+    private func extractDataFromImage(receiptImage: UIImage) async -> Receipt? {
+        print("🔍 [extractDataFromImage] Starting receipt processing...")
+        print("🔍 [extractDataFromImage] Image size: \(receiptImage.size)")
+        
+        // Check backend status
+        let backendStatus = await BackendAPIService.shared.getBackendStatus()
+        print("🔍 [extractDataFromImage] Backend URL: \(backendStatus.url)")
+        print("🔍 [extractDataFromImage] Using localhost: \(backendStatus.isLocalhost)")
+        
         do {
-            let systemPrompt = """
-            ### **SpendSmart Receipt Extraction and Validation System**
-
-            #### **CRITICAL: Receipt Validation First**
-            Before extracting any data, you MUST validate if this image contains a valid receipt:
-            - A valid receipt should have: store name, date, items with prices, and total amount
-            - If the image is blurry, unclear, not a receipt, or missing critical elements, return validation failure
-            - If validation fails, return ONLY: {"isValid": false, "message": "Invalid receipt detected"}
-            - If validation passes, proceed with full data extraction
-
-            #### **Extraction Rules (only if validation passes):**
-            - No missing values – every field must be correctly populated.
-            - Ensure calculations are accurate – total_amount = sum(items) + total_tax.
-            - When calculating total_amount, use the actual price paid (after discounts), not the original price.
-            - For items redeemed with points or free items, use price = 0 in the calculation.
-            - Detect currency based on store location or tax rate.
-            - Extract payment method if present (e.g., "Credit Card", "Cash", "Mobile Payment").
-            - Carefully identify discounts, free items, and special pricing:
-              * For items with discounts, set originalPrice to the pre-discount price
-              * Set discountDescription to explain the discount (e.g., "Points Redeemed", "Loyalty Discount")
-              * For items that represent a discount, set isDiscount to true
-              * For free items (price = 0), include why they're free in discountDescription
-              * For nominal pricing (e.g., $0.01), note this in discountDescription
-
-            #### **Store Name and Logo Search Term:**
-            - ALWAYS set the receipt_name field to be the same as the store_name. The store name should be the title of the receipt.
-            - Create a logo_search_term field that contains ONLY the core brand name for logo API searches.
-            - The logo_search_term MUST be a generic, widely-recognizable brand identifier by:
-              * Using only the main brand name without any location, store number, or descriptive text
-              * Removing ALL location identifiers (e.g., "Walmart Supercenter #1234" → "Walmart")
-              * Removing ALL branch/store numbers (e.g., "Target Store #0456" → "Target")
-              * Removing ALL descriptors like "Restaurant", "Store", "Market", "Shop" (e.g., "McDonald's Restaurant" → "McDonald's")
-              * Removing ALL location references like street names, cities, "Downtown", "Airport" (e.g., "Starbucks - Main St" → "Starbucks")
-              * Using the parent company name for subsidiaries (e.g., "Taco Bell Express" → "Taco Bell")
-              * Standardizing to the most common brand format (e.g., "McDonald's Corp" → "McDonald's")
-            - CRITICAL: The logo_search_term should be suitable for searching logo APIs and must be a recognizable brand name only.
-            - Examples:
-              * "Walmart Supercenter #1234 - Downtown" → logo_search_term: "Walmart"
-              * "Target Store #0456 Main Street" → logo_search_term: "Target"
-              * "McDonald's Restaurant - Airport Terminal" → logo_search_term: "McDonald's"
-              * "Starbucks Coffee Company - Union Square" → logo_search_term: "Starbucks"
-              * "7-Eleven Store #4285 Broadway" → logo_search_term: "7-Eleven"
-              * "CVS Pharmacy #9876" → logo_search_term: "CVS"
-              * "Whole Foods Market - Midtown" → logo_search_term: "Whole Foods"
-
-            #### **Item Categorization:**
-            Each item must be placed in the most appropriate category:
-            - Groceries → Food, beverages, household essentials, cleaning supplies, snacks, dairy, bakery items, frozen foods, and fresh produce.
-            - Dining → Any prepared meals, fast food, takeout, restaurant purchases, coffee shops, and catering.
-            - Shopping → Clothing, electronics, accessories, home decor, appliances, books, and general retail items.
-            - Health → Medicine, supplements, pharmacy purchases, hygiene products, skincare, and personal care items.
-            - Transport → Gasoline, electric vehicle charging, public transit fares, tolls, ride-sharing services, and parking fees.
-            - Services → Repairs, maintenance, haircuts, subscriptions (e.g., streaming, software), utilities, and professional services.
-            - Entertainment → Movie tickets, gaming, concerts, amusement parks, hobbies, toys, and streaming rentals.
-            - Other → Only if no category fits. Avoid overusing this category.
-
-            #### **Quality Check Before Output:**
-            - Ensure totals are correct – verify sum of items + tax.
-            - Use logical tax rates based on region/currency.
-            - Extract store name, address, and date accurately.
-            - IMPORTANT: Filter out any gibberish or unclear items. Only include items that are clearly identifiable from the receipt.
-            - For items with unclear names, try to interpret them based on context or price.
-            - If an item appears to be a discount, points redemption, or free item, mark it correctly with isDiscount=true.
-            - For items that are clearly part of a points redemption system, ensure they are properly marked.
-            - Verify that receipt_name matches store_name and that logo_search_term is properly optimized.
-
-            Goal: Fully automate receipt scanning for a seamless user experience. NEVER return null values - use reasonable defaults instead (0 for numbers, empty strings for text, current date for dates). Be aware that items such as paper cups or ketchup may sometimes be free items and may not have any price beside them - use 0.0 for these prices.
-            """
-
-            let config = AIService.GenerationConfig(
-              temperature: 1,
-              topP: 0.95,
-              topK: 40,
-              maxOutputTokens: 8192,
-              responseMIMEType: "application/json"
-            )
-
-            let structuredSchema = """
-            {
-              "type": "object",
-              "properties": {
-                "isValid": {
-                  "type": "boolean"
-                },
-                "message": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "user_id": {
-                  "type": "string"
-                },
-                "image_url": {
-                  "type": "string"
-                },
-                "total_amount": {
-                  "type": "number"
-                },
-                "total_tax": {
-                  "type": "number"
-                },
-                "currency": {
-                  "type": "string"
-                },
-                "payment_method": {
-                  "type": "string"
-                },
-                "purchase_date": {
-                  "type": "string",
-                  "format": "date"
-                },
-                "store_name": {
-                  "type": "string"
-                },
-                "store_address": {
-                  "type": "string"
-                },
-                "receipt_name": {
-                  "type": "string"
-                },
-                "logo_search_term": {
-                  "type": "string"
-                },
-                "items": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string"
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "price": {
-                        "type": "number"
-                      },
-                      "category": {
-                        "type": "string"
-                      },
-                      "originalPrice": {
-                        "type": "number"
-                      },
-                      "discountDescription": {
-                        "type": "string"
-                      },
-                      "isDiscount": {
-                        "type": "boolean"
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "name",
-                      "price",
-                      "category"
-                    ]
-                  }
-                }
-              },
-              "required": [
-                "isValid"
-              ]
+            // Use the new single receipt processing endpoint
+            print("🔍 [extractDataFromImage] Calling aiService.processReceipt...")
+            let result = try await aiService.processReceipt(image: receiptImage)
+            
+            print("🔍 [extractDataFromImage] AI response received:")
+            print("🔍 [extractDataFromImage] - isValid: \(result.isValid)")
+            print("🔍 [extractDataFromImage] - message: \(result.message ?? "nil")")
+            print("🔍 [extractDataFromImage] - storeName: \(result.storeName ?? "nil")")
+            print("🔍 [extractDataFromImage] - totalAmount: \(result.totalAmount ?? 0.0)")
+            print("🔍 [extractDataFromImage] - items count: \(result.items.count)")
+            
+            // Check if receipt is valid
+            guard result.isValid else {
+                print("❌ [extractDataFromImage] Receipt validation failed: \(result.message ?? "Unknown error")")
+                return nil
             }
-            """
-
-            let prompt = "Extract all receipt details from this image and return in this format: \(structuredSchema)."
-            let response = try await aiService.generateContent(
-                prompt: prompt,
-                image: receiptImage,
-                systemInstruction: systemPrompt,
-                config: config
-            )
-            print(response.text ?? "No response received")
-
-            let parsedReceipt = parseReceipt(from: response.text)
-            return parsedReceipt
+            
+            print("✅ [extractDataFromImage] Receipt is valid, converting to Receipt object...")
+            
+            // Convert the processing result to a Receipt object
+            return await NewExpenseView.convertProcessingResultToReceipt(result, appState: appState)
+            
         } catch {
-            print("Error extracting data from image: \(error)")
+            print("❌ [extractDataFromImage] AI processing failed: \(error.localizedDescription)")
+            print("❌ [extractDataFromImage] Error type: \(type(of: error))")
+            if let nsError = error as NSError? {
+                print("❌ [extractDataFromImage] Error domain: \(nsError.domain), code: \(nsError.code)")
+                print("❌ [extractDataFromImage] Error userInfo: \(nsError.userInfo)")
+            }
             return nil
         }
     }
 
-    func parseReceipt(from jsonString: String?) -> Receipt? {
-        guard let jsonString = jsonString, let data = jsonString.data(using: .utf8) else {
-            print("Invalid JSON string")
-            return nil  // ✅ Ensure the function returns nil if jsonString is invalid
+    static func convertProcessingResultToReceipt(_ result: ReceiptProcessingResult, appState: AppState) async -> Receipt? {
+        guard let storeName = result.storeName,
+              let purchaseDateString = result.purchaseDate,
+              let totalAmount = result.totalAmount,
+              let currency = result.currency else {
+            print("❌ [convertProcessingResultToReceipt] Missing required fields")
+            return nil
         }
-
-        do {
-            // First, check if the JSON is an array or a single object
-            let decoder = JSONDecoder()
+        
+        // Parse purchase date
             let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd" // Matches the format in JSON
-            decoder.dateDecodingStrategy = .formatted(dateFormatter)
-
-            // Try to determine if we have an array or a single object
-            let json = try JSONSerialization.jsonObject(with: data)
-
-            // Handle the case where the response is an array
-            var receiptData: Data
-            if let jsonArray = json as? [Any], !jsonArray.isEmpty {
-                print("Detected JSON array, extracting first item")
-                // Extract the first item from the array
-                if let firstItem = jsonArray.first,
-                   let firstItemData = try? JSONSerialization.data(withJSONObject: firstItem) {
-                    receiptData = firstItemData
-                } else {
-                    print("Failed to extract first item from JSON array")
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        guard let purchaseDate = dateFormatter.date(from: purchaseDateString) else {
+            print("❌ [convertProcessingResultToReceipt] Invalid date format: \(purchaseDateString)")
                     return nil
-                }
-            } else if let jsonObject = json as? [String: Any] {
-                // Check if this is a schema wrapper (OpenAI sometimes returns schema format)
-                if let properties = jsonObject["properties"] as? [String: Any] {
-                    print("Detected schema wrapper, extracting properties")
-                    print("Properties keys: \(properties.keys)")
-                    // Extract the actual receipt data from properties
-                    let propertiesData = try JSONSerialization.data(withJSONObject: properties)
-                    receiptData = propertiesData
-                } else {
-                    print("Using original JSON object")
-                    print("JSON keys: \(jsonObject.keys)")
-                    // It's already a single object, use the original data
-                    receiptData = data
-                }
-            } else {
-                print("Using original data as fallback")
-                // It's already a single object, use the original data
-                receiptData = data
-            }
-
-            // Now decode the single receipt object
-            let parsedData = try decoder.decode(TemporaryReceipt.self, from: receiptData)
-
-            // Check if validation failed
-            if let isValid = parsedData.isValid, !isValid {
-                print("Receipt validation failed: \(parsedData.message ?? "Invalid receipt")")
-                return nil
-            }
-
-            // Calculate total amount if missing by summing items
-            let calculatedTotalAmount: Double
-            if let totalAmount = parsedData.total_amount {
-                calculatedTotalAmount = totalAmount
-                print("Using provided total amount: \(calculatedTotalAmount)")
-            } else {
-                // Sum all item prices
-                calculatedTotalAmount = parsedData.items.reduce(0) { total, item in
-                    print("Adding item: \(item.name) - $\(item.price)")
-                    return total + item.price
-                }
-                print("Calculated total amount from items: \(calculatedTotalAmount)")
-            }
-
-            print("Parsed data summary:")
-            print("- Store name: \(parsedData.store_name ?? "nil")")
-            print("- Total amount: \(parsedData.total_amount ?? 0)")
-            print("- Items count: \(parsedData.items.count)")
-            print("- Currency: \(parsedData.currency ?? "nil")")
-            print("- Logo search term: \(parsedData.logo_search_term ?? "nil")")
-
-            // Set default values for missing fields
-            let currentDate = Date()
-            if let purchaseDate = parsedData.purchase_date {
-                print("Date: \(purchaseDate)")
-                print("IS08601 Date: \(purchaseDate.ISO8601Format())")
-            }
-
-            // Filter out gibberish items (single character names or very short names that aren't common abbreviations)
-            let filteredItems = parsedData.items.filter { item in
-                // Keep items that are marked as discounts
-                if item.isDiscount {
-                    return true
-                }
-
-                // Filter out single character items that aren't common abbreviations
-                if item.name.count <= 1 {
-                    return false
-                }
-
-                // Filter out items with names that are just punctuation or special characters
-                let nonPunctuationChars = item.name.filter { !$0.isPunctuation && !$0.isSymbol }
-                if nonPunctuationChars.isEmpty {
-                    return false
-                }
-
-                return true
-            }
-
-            // Recalculate total if needed after filtering
-            let finalTotalAmount: Double
-            if filteredItems.count < parsedData.items.count {
-                // Some items were filtered out, recalculate the total
-                finalTotalAmount = filteredItems.reduce(0) { total, item in
-                    return total + item.price
-                } + (parsedData.total_tax ?? 0.0)
-            } else {
-                finalTotalAmount = calculatedTotalAmount
-            }
-
-            // Determine the user ID based on whether we're in guest mode or not
-            let userId: UUID
-            if appState.isGuestUser {
-                // Use the guest user ID if available, otherwise generate a new one
-                userId = appState.guestUserId ?? UUID()
-            } else {
-                // Use the authenticated user's ID
-                if let currentUser = supabase.currentUser, let userUUID = UUID(uuidString: currentUser.id) {
-                    userId = userUUID
-                } else {
-                    userId = UUID()
-                }
-            }
-
-            let receipt = Receipt(
-                id: UUID(),
-                user_id: userId,
-                image_urls: [],
-                total_amount: finalTotalAmount,
-                items: filteredItems.map { item in
+        }
+        
+        // Convert items
+        let receiptItems = result.items.map { item in
                     ReceiptItem(
                         id: UUID(),
                         name: item.name,
                         price: item.price,
                         category: item.category,
-                        originalPrice: item.originalPrice,
-                        discountDescription: item.discountDescription,
+                        originalPrice: item.originalPrice ?? item.price,
+                        discountDescription: item.discountDescription ?? "",
                         isDiscount: item.isDiscount
-                    )
-                },
-                store_name: parsedData.store_name ?? "Unknown Store",
-                store_address: parsedData.store_address ?? "",
-                receipt_name: parsedData.receipt_name ?? "Receipt",
-                purchase_date: parsedData.purchase_date ?? currentDate,
-                currency: parsedData.currency ?? "USD",
-                payment_method: parsedData.payment_method ?? "Unknown",
-                total_tax: parsedData.total_tax ?? 0.0,
-                logo_search_term: parsedData.logo_search_term
-            )
+                )
+        }
+        
+        // Create receipt
+        // Convert user ID - try guestUserId first, then auth token, then fallback to random UUID
+        let userId = appState.guestUserId ?? UUID(uuidString: BackendAPIService.shared.getAuthToken() ?? "") ?? UUID()
+        
+        // Prepare other values
+        let receiptName = result.receiptName ?? storeName
+        let storeAddress = result.storeAddress ?? ""
+        let paymentMethod = result.paymentMethod ?? "Unknown"
+        let logoSearchTerm = result.logoSearchTerm ?? storeName
+        let totalTax = result.totalTax ?? 0.0
+        
+        let receipt = Receipt(
+            id: UUID(),
+            user_id: userId,
+            image_urls: [], // Will be set later when images are uploaded
+            total_amount: totalAmount,
+            items: receiptItems,
+            store_name: storeName,
+            store_address: storeAddress,
+            receipt_name: receiptName,
+            purchase_date: purchaseDate,
+            currency: currency,
+            payment_method: paymentMethod,
+            total_tax: totalTax,
+            logo_search_term: logoSearchTerm
+        )
 
             return receipt
-        } catch {
-            print("JSON Parsing Error: \(error)")
-            return nil  // ✅ Ensure the function returns nil if parsing fails
-        }
     }
 
-
-    // Temporary struct to decode the JSON structure before transforming it into a `Receipt` object
-    private struct TemporaryReceipt: Codable {
-        var isValid: Bool?
-        var message: String?
-        var total_amount: Double?
-        var total_tax: Double?
-        var currency: String?
-        var payment_method: String?
-        var purchase_date: Date?
-        var store_name: String?
-        var store_address: String?
-        var receipt_name: String?
-        var logo_search_term: String?
-        var items: [TemporaryReceiptItem]
-
-        // Add coding keys to handle all fields
-        enum CodingKeys: String, CodingKey {
-            case isValid, message, total_amount, total_tax, currency, payment_method, purchase_date, store_name, store_address, receipt_name, logo_search_term, items
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-
-            // Handle validation fields
-            isValid = try container.decodeIfPresent(Bool.self, forKey: .isValid)
-            message = try container.decodeIfPresent(String.self, forKey: .message)
-
-            // Handle nested values that might be wrapped in schema format
-            total_amount = Self.extractValue(from: container, key: .total_amount)
-            total_tax = Self.extractValue(from: container, key: .total_tax)
-            currency = Self.extractStringValue(from: container, key: .currency)
-            payment_method = Self.extractStringValue(from: container, key: .payment_method)
-            purchase_date = try container.decodeIfPresent(Date.self, forKey: .purchase_date)
-            store_name = Self.extractStringValue(from: container, key: .store_name)
-            store_address = Self.extractStringValue(from: container, key: .store_address)
-            receipt_name = Self.extractStringValue(from: container, key: .receipt_name)
-            logo_search_term = Self.extractStringValue(from: container, key: .logo_search_term)
-
-            // Items is required, but we'll provide an empty array if missing
-            items = try container.decodeIfPresent([TemporaryReceiptItem].self, forKey: .items) ?? []
-        }
-
-        // Helper methods to extract values that might be wrapped in schema format
-        static func extractValue(from container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Double? {
-            return try? container.decodeIfPresent(Double.self, forKey: key)
-        }
-
-        static func extractStringValue(from container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> String? {
-            return try? container.decodeIfPresent(String.self, forKey: key)
-        }
-    }
-
-    private struct TemporaryReceiptItem: Codable {
-        var name: String
-        var price: Double
-        var category: String
-        var originalPrice: Double?
-        var discountDescription: String?
-        var isDiscount: Bool
-        var id: String?
-
-        // Add coding keys to make originalPrice, discountDescription, and isDiscount optional in JSON
-        enum CodingKeys: String, CodingKey {
-            case name, price, category, originalPrice, discountDescription, isDiscount, id
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-
-            // Required fields with fallbacks
-            do {
-                name = try container.decode(String.self, forKey: .name)
-            } catch {
-                name = "Unknown Item"
-            }
-
-            do {
-                price = try container.decode(Double.self, forKey: .price)
-            } catch {
-                price = 0.0
-            }
-
-            do {
-                category = try container.decode(String.self, forKey: .category)
-            } catch {
-                category = "Other"
-            }
-
-            // Optional fields with defaults
-            originalPrice = try container.decodeIfPresent(Double.self, forKey: .originalPrice)
-            discountDescription = try container.decodeIfPresent(String.self, forKey: .discountDescription)
-            isDiscount = try container.decodeIfPresent(Bool.self, forKey: .isDiscount) ?? false
-            id = try container.decodeIfPresent(String.self, forKey: .id)
-        }
-    }
-
-}
-
-struct ImageCaptureView: UIViewControllerRepresentable {
-    @Binding var image: UIImage?
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.delegate = context.coordinator
-        picker.sourceType = .camera
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        var parent: ImageCaptureView
-
-        init(_ parent: ImageCaptureView) {
-            self.parent = parent
-        }
-
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-            if let uiImage = info[.originalImage] as? UIImage {
-                parent.image = uiImage
-            }
-            picker.dismiss(animated: true)
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            picker.dismiss(animated: true)
-        }
-    }
-}
-
-struct ImagePicker: UIViewControllerRepresentable {
-    @Binding var image: UIImage?
-
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        var config = PHPickerConfiguration()
-        config.filter = .images
-        let picker = PHPickerViewController(configuration: config)
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        var parent: ImagePicker
-
-        init(_ parent: ImagePicker) {
-            self.parent = parent
-        }
-
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            picker.dismiss(animated: true)
-
-            guard let provider = results.first?.itemProvider else { return }
-
-            if provider.canLoadObject(ofClass: UIImage.self) {
-                provider.loadObject(ofClass: UIImage.self) { image, _ in
-                    DispatchQueue.main.async {
-                        self.parent.image = image as? UIImage
+    // MARK: - Streaming Progress View
+    @ViewBuilder
+    private func streamingProgressView(progress: AIStreamingProgress) -> some View {
+        VStack(spacing: 30) {
+            // Clean, modern loading design without shadows
+            VStack(spacing: 24) {
+                // Animated icon with clean design
+                ZStack {
+                    // Subtle background circle
+                    Circle()
+                        .fill(progress.stage.color.opacity(0.1))
+                        .frame(width: 80, height: 80)
+                    
+                    // Main icon
+                    Image(systemName: progress.stage.systemImage)
+                        .font(.system(size: 32, weight: .medium))
+                        .foregroundColor(progress.stage.color)
+                        .scaleEffect(pulseScale)
+                }
+                .frame(width: 100, height: 100)
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                        pulseScale = 1.1
                     }
+                }
+                
+                // Stage title
+                Text(progress.stage.displayName)
+                    .font(.spaceGrotesk(size: 24, weight: .bold))
+                    .foregroundColor(progress.stage.color)
+                
+                // Progress bar with clean design
+                VStack(spacing: 12) {
+                    HStack {
+                        Text("Processing...")
+                            .font(.spaceGrotesk(size: 16))
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
+                        Text("\(progress.progressPercentage)%")
+                            .font(.spaceGrotesk(size: 16, weight: .medium))
+                            .foregroundColor(progress.stage.color)
+                    }
+                    
+                    // Clean progress bar
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(height: 6)
+                        
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(progress.stage.color)
+                            .frame(width: max(0, UIScreen.main.bounds.width - 80) * animatedProgress, height: 6)
+                            .animation(.easeInOut(duration: 0.8), value: animatedProgress)
+                    }
+                }
+                .padding(.horizontal, 20)
+                
+                // Status message
+                Text(progress.message)
+                    .font(.spaceGrotesk(size: 16))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
+                
+                // Accurate time estimate
+                if !progress.isComplete {
+                    Text(accurateTimeEstimate)
+                        .font(.spaceGrotesk(size: 14))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+            }
+            .padding(.vertical, 40)
+            .padding(.horizontal, 30)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(.ultraThinMaterial)
+            )
+            .padding(.horizontal, 20)
+        }
+        .onChange(of: progress.progress) { _, newProgress in
+            withAnimation(.easeInOut(duration: 0.8)) {
+                animatedProgress = newProgress
+            }
+        }
+    }
+    
+    private var accurateTimeEstimate: String {
+        guard let startTime = processingStartTime else { return "Processing..." }
+        
+        let elapsed = Date().timeIntervalSince(startTime)
+        let totalStages = AIStreamingStage.allCases.count
+        let currentStageIndex = AIStreamingStage.allCases.firstIndex(of: streamingProgress?.stage ?? .initializing) ?? 0
+        
+        // Calculate remaining time based on actual elapsed time and stage progress
+        let averageTimePerStage = elapsed / Double(currentStageIndex + 1)
+        let remainingStages = totalStages - currentStageIndex - 1
+        let estimatedRemaining = averageTimePerStage * Double(remainingStages)
+        
+        if estimatedRemaining > 0 {
+            let minutes = Int(estimatedRemaining / 60)
+            let seconds = Int(estimatedRemaining.truncatingRemainder(dividingBy: 60))
+            
+            if minutes > 0 {
+                return "About \(minutes)m \(seconds)s remaining"
+            } else {
+                return "About \(seconds)s remaining"
+            }
+        }
+        return "Almost done..."
+    }
+}
+
+
+// MARK: - Full Screen Processing View
+struct FullScreenProcessingView: View {
+    let capturedImages: [UIImage]
+    let onReceiptAdded: (Receipt) -> Void
+    let onDismiss: () -> Void
+    let onError: (String) -> Void
+    
+    @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    
+    @State private var streamingProgress: AIStreamingProgress?
+    @State private var animatedProgress: Double = 0.0
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var processingStartTime: Date?
+    @State private var isProcessing = false
+    
+    private let aiService = AIService.shared
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                // Background gradient
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color(hex: "667eea"),
+                        Color(hex: "764ba2")
+                    ]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    // Header
+                    VStack(spacing: 16) {
+                        Text("Processing Receipt")
+                            .font(.instrumentSans(size: 24, weight: .semibold))
+                            .foregroundColor(.white)
+                        
+                        Text("We're analyzing your receipt to extract all the details")
+                            .font(.instrumentSans(size: 14))
+                            .foregroundColor(.white.opacity(0.8))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
+                    .padding(.top, 60)
+                    .padding(.bottom, 40)
+                    
+                    // Processing content
+                    if let progress = streamingProgress {
+                        ScrollView {
+                            VStack(spacing: 30) {
+                                // Clean processing view
+                                VStack(spacing: 24) {
+                                    // Animated icon
+                                    ZStack {
+                                        Circle()
+                                            .fill(progress.stage.color.opacity(0.2))
+                                            .frame(width: 100, height: 100)
+                                        
+                                        Image(systemName: progress.stage.systemImage)
+                                            .font(.system(size: 40, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .scaleEffect(pulseScale)
+                                    }
+                                    .frame(width: 120, height: 120)
+                                    .onAppear {
+                                        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                                            pulseScale = 1.1
+                                        }
+                                    }
+                                    
+                                    // Stage title
+                                    Text(progress.stage.displayName)
+                                        .font(.instrumentSans(size: 22, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    
+                                    // Progress bar
+                                    VStack(spacing: 12) {
+                                        HStack {
+                                            Text("Processing...")
+                                                .font(.instrumentSans(size: 14))
+                                                .foregroundColor(.white.opacity(0.8))
+                                            
+                                            Spacer()
+                                            
+                                            Text("\(progress.progressPercentage)%")
+                                                .font(.instrumentSans(size: 14, weight: .medium))
+                                                .foregroundColor(.white)
+                                        }
+                                        
+                                        ZStack(alignment: .leading) {
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .fill(Color.white.opacity(0.3))
+                                                .frame(height: 8)
+                                            
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .fill(Color.white)
+                                                .frame(width: max(0, UIScreen.main.bounds.width - 80) * animatedProgress, height: 8)
+                                                .animation(.easeInOut(duration: 0.8), value: animatedProgress)
+                                        }
+                                    }
+                                    .padding(.horizontal, 20)
+                                    
+                                    // Status message
+                                    Text(progress.message)
+                                        .font(.instrumentSans(size: 14))
+                                        .foregroundColor(.white.opacity(0.9))
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 20)
+                                    
+                                    // Time estimate
+                                    if !progress.isComplete {
+                                        Text(accurateTimeEstimate)
+                                            .font(.instrumentSans(size: 12))
+                                            .foregroundColor(.white.opacity(0.7))
+                                    }
+                                }
+                                .padding(.vertical, 40)
+                                .padding(.horizontal, 30)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 24)
+                                        .fill(Color.white.opacity(0.1))
+                                        .background(.ultraThinMaterial)
+                                )
+                                .padding(.horizontal, 20)
+                            }
+                            .padding(.vertical, 20)
+                        }
+                    } else {
+                        // Initial loading state
+                        VStack(spacing: 30) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.white)
+                            
+                            Text("Preparing to process your receipt...")
+                                .font(.instrumentSans(size: 14))
+                                .foregroundColor(.white.opacity(0.8))
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    
+                    Spacer()
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        onDismiss()
+                    }
+                    .foregroundColor(.white)
+                    .font(.spaceGrotesk(size: 16, weight: .medium))
+                }
+            }
+        }
+        .onAppear {
+            processingStartTime = Date()
+            startProcessing()
+        }
+        .onChange(of: streamingProgress?.progress) { _, newProgress in
+            withAnimation(.easeInOut(duration: 0.8)) {
+                animatedProgress = newProgress ?? 0.0
+            }
+        }
+    }
+    
+    private var accurateTimeEstimate: String {
+        guard let startTime = processingStartTime else { return "Processing..." }
+        
+        let elapsed = Date().timeIntervalSince(startTime)
+        let totalStages = AIStreamingStage.allCases.count
+        let currentStageIndex = AIStreamingStage.allCases.firstIndex(of: streamingProgress?.stage ?? .initializing) ?? 0
+        
+        // Calculate remaining time based on actual elapsed time and stage progress
+        let averageTimePerStage = elapsed / Double(currentStageIndex + 1)
+        let remainingStages = totalStages - currentStageIndex - 1
+        let estimatedRemaining = averageTimePerStage * Double(remainingStages)
+        
+        if estimatedRemaining > 0 {
+            let minutes = Int(estimatedRemaining / 60)
+            let seconds = Int(estimatedRemaining.truncatingRemainder(dividingBy: 60))
+            
+            if minutes > 0 {
+                return "About \(minutes)m \(seconds)s remaining"
+            } else {
+                return "About \(seconds)s remaining"
+            }
+        }
+        return "Almost done..."
+    }
+    
+    private func startProcessing() {
+        guard !capturedImages.isEmpty else {
+            onError("No images to process")
+            return
+        }
+        
+        isProcessing = true
+        
+        Task {
+            do {
+                // Start with initializing stage
+                await MainActor.run {
+                    streamingProgress = AIStreamingProgress(
+                        stage: .initializing,
+                        progress: 0.0,
+                        message: "Initializing AI processing...",
+                        partialText: ""
+                    )
+                }
+                
+                // Upload images
+                var imageUrls: [String] = []
+                for (_, image) in capturedImages.enumerated() {
+                    await MainActor.run {
+                        streamingProgress = AIStreamingProgress(
+                            stage: .analyzing,
+                            progress: 0.2,
+                            message: "Uploading...",
+                            partialText: ""
+                        )
+                    }
+                    
+                    let imageUrl = await ImageStorageService.shared.uploadImage(image)
+                    imageUrls.append(imageUrl)
+                }
+                
+                // Process with AI
+                await MainActor.run {
+                    streamingProgress = AIStreamingProgress(
+                        stage: .extracting,
+                        progress: 0.4,
+                        message: "Extracting receipt data...",
+                        partialText: ""
+                    )
+                }
+                
+                await MainActor.run {
+                    streamingProgress = AIStreamingProgress(
+                        stage: .processing,
+                        progress: 0.7,
+                        message: "Processing information...",
+                        partialText: ""
+                    )
+                }
+                
+                // Process receipt with AI
+                let receipt = try await processReceiptWithAI(imageUrls: imageUrls)
+                
+                await MainActor.run {
+                    streamingProgress = AIStreamingProgress(
+                        stage: .validating,
+                        progress: 0.9,
+                        message: "Validating results...",
+                        partialText: ""
+                    )
+                }
+                
+                // Save to database
+                let savedReceipt = try await saveReceipt(receipt)
+                
+                await MainActor.run {
+                    streamingProgress = AIStreamingProgress(
+                        stage: .complete,
+                        progress: 1.0,
+                        message: "Receipt processed successfully!",
+                        partialText: ""
+                    )
+                }
+                
+                // Wait a moment to show completion
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+                
+                await MainActor.run {
+                    onReceiptAdded(savedReceipt)
+                    onDismiss()
+                }
+                
+            } catch {
+                await MainActor.run {
+                    streamingProgress = AIStreamingProgress(
+                        stage: .error,
+                        progress: 0.0,
+                        message: "Error processing receipt: \(error.localizedDescription)",
+                        partialText: ""
+                    )
+                }
+                
+                // Wait a moment then show error
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+                await MainActor.run {
+                    onError(error.localizedDescription)
                 }
             }
         }
     }
-}
-
-// Preview
-struct NewExpenseView_Previews: PreviewProvider {
-    static var previews: some View {
-        NewExpenseView(onReceiptAdded: { _ in })
-            .preferredColorScheme(.dark)
+    
+    private func processReceiptWithAI(imageUrls: [String]) async throws -> Receipt {
+        // Use the first image for processing
+        guard let firstImage = capturedImages.first else {
+            throw NSError(domain: "FullScreenProcessingView", code: -1, userInfo: [NSLocalizedDescriptionKey: "No images to process"])
+        }
+        
+        // Use the new single receipt processing endpoint
+        let result = try await aiService.processReceipt(image: firstImage)
+        
+        // Check if receipt is valid
+        guard result.isValid else {
+            throw NSError(domain: "FullScreenProcessingView", code: -2, userInfo: [NSLocalizedDescriptionKey: result.message ?? "Invalid receipt detected"])
+        }
+        
+        // Convert the processing result to a Receipt object
+        guard let receipt = await NewExpenseView.convertProcessingResultToReceipt(result, appState: appState) else {
+            throw NSError(domain: "FullScreenProcessingView", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to convert receipt data"])
+        }
+        
+        // Update the receipt with all image URLs
+        var updatedReceipt = receipt
+        updatedReceipt.image_urls = imageUrls
+        
+        return updatedReceipt
+    }
+    
+    private func saveReceipt(_ receipt: Receipt) async throws -> Receipt {
+        if appState.useLocalStorage {
+            LocalStorageService.shared.addReceipt(receipt)
+            return receipt
+        } else {
+            return try await supabase.createReceipt(receipt)
+        }
     }
 }

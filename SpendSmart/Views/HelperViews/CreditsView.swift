@@ -7,24 +7,6 @@
 
 import SwiftUI
 
-struct CreditRow: View {
-    var icon: String
-    var text: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .foregroundColor(.primary)
-                .frame(width: 24, height: 24)
-
-            Text(text)
-                .font(.instrumentSans(size: 16))
-                .foregroundColor(.primary)
-        }
-        .padding(.vertical, 4)
-    }
-}
-
 struct CreditsView: View {
     @State private var animate = false
 
@@ -39,15 +21,14 @@ struct CreditsView: View {
                     .font(.instrumentSerif(size: 36))
                     .foregroundColor(.primary)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    CreditRow(icon: "globe", text: "Logos provided by Logo.dev")
-                }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(20)
-                .opacity(animate ? 1 : 0)
-                .animation(.easeInOut(duration: 0.5), value: animate)
-                .onAppear { self.animate = true }
+                Text("All third-party services and APIs used in this app are properly licensed.")
+                    .font(.instrumentSans(size: 16))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding()
+                    .opacity(animate ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.5), value: animate)
+                    .onAppear { self.animate = true }
 
                 Spacer()
             }

@@ -53,5 +53,14 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSUserNotificationUsageDescription</key>
+	<string>SpendSmart uses notifications to alert you before subscription renewals and trial endings.</string>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
 </dict>
 </plist>

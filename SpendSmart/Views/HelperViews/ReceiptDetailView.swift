@@ -8,9 +8,10 @@
 import SwiftUI
 import Foundation
 import UIKit
+import Shimmer
 
 struct ReceiptDetailView: View {
-    let receipt: Receipt
+    @State private var receipt: Receipt
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var appState: AppState
@@ -21,8 +22,7 @@ struct ReceiptDetailView: View {
     // Local state for logo and colors; initially not set.
     @State private var logoImage: UIImage? = nil
     @State private var logoColors: [Color] = [.gray]
-    @State private var isRefreshingRates: Bool = false
-    @State private var showRateRefreshAlert: Bool = false
+
 
     // Use the shared cache
     @StateObject private var logoCache = LogoCache.shared
@@ -36,17 +36,18 @@ struct ReceiptDetailView: View {
     @State private var lastDragValue = CGSize.zero
     @State private var showZoomControls = false
     @State private var isFullscreen = false
+    @State private var updatedReceipt: Receipt
+    @State private var selectedTab = 0
+    @State private var logoLoadingTask: Task<Void, Never>? = nil
 
     // Constants for zoom levels
     private let minZoom: CGFloat = 1.0
     private let maxZoom: CGFloat = 5.0
     private let zoomIncrement: CGFloat = 0.5
-    @State private var showEditSheet = false
-    @State private var updatedReceipt: Receipt
 
     // Initialize with the receipt
     init(receipt: Receipt, onUpdate: ((Receipt) -> Void)? = nil) {
-        self.receipt = receipt
+        self._receipt = State(initialValue: receipt)
         self.onUpdate = onUpdate
         // Initialize the updatedReceipt with the original receipt
         _updatedReceipt = State(initialValue: receipt)
@@ -54,601 +55,673 @@ struct ReceiptDetailView: View {
 
     var body: some View {
         ZStack {
-            // Animated background based on logo colors
-            backgroundGradient
+            // Enhanced background with design system colors
+            DesignTokens.Colors.Background.grouped
                 .ignoresSafeArea()
-                .transition(.opacity)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // Header with logo and store info
-                    HStack(alignment: .top, spacing: 16) {
-                        if let logo = logoImage {
-                            Image(uiImage: logo)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
+                VStack(spacing: DesignTokens.Spacing.sectionSpacing) {
+                    // Hero Header Section
+                    heroHeaderSection
+                        .semanticSpacing(.page)
+
+                    // Tab Navigation
+                    tabNavigationSection
+                        .semanticSpacing(.cardOuter)
+
+                    // Tab Content
+                    tabContentSection
+                        .semanticSpacing(.cardOuter)
+                        .padding(.bottom, DesignTokens.Spacing.massive)
+                }
+            }
+            .scrollIndicators(.hidden)
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                IconButton(
+                    icon: "xmark.circle.fill",
+                    size: .medium,
+                    style: .outlined
+                ) {
+                    withAnimation(DesignTokens.Animation.easeInOut) {
+                        dismiss()
+                    }
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+
+
+        .fullScreenCover(isPresented: $isFullscreen) {
+            fullscreenImageView
+        }
+        .onAppear {
+            loadLogo()
+            withAnimation(DesignTokens.Animation.spring.delay(0.2)) {
+                animateContent = true
+            }
+        }
+        .onDisappear {
+            // Cancel any ongoing logo loading task
+            logoLoadingTask?.cancel()
+            logoLoadingTask = nil
+        }
+    }
+
+    // MARK: - Hero Header Section
+    private var heroHeaderSection: some View {
+        VStack(spacing: DesignTokens.Spacing.lg) {
+            // Store Logo and Info
+            HStack(alignment: .top, spacing: 16) {
+                // Animated Logo
+                ZStack {
+                    if let logo = logoImage {
+                        Image(uiImage: logo)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 80, height: 80)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .stroke(
+                                        LinearGradient(
+                                            colors: [primaryLogoColor.opacity(0.6), secondaryLogoColor.opacity(0.3)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 2
+                                    )
+                            )
+                            .shadow(color: primaryLogoColor.opacity(0.3), radius: 12, x: 0, y: 6)
+                            .scaleEffect(animateContent ? 1.0 : 0.8)
+                            .transition(.scale.combined(with: .opacity))
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [primaryLogoColor.opacity(0.2), secondaryLogoColor.opacity(0.1)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
                                 .frame(width: 80, height: 80)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                                )
-                                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
-                                .transition(.scale)
-                        } else {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(primaryLogoColor.opacity(0.2))
-                                    .frame(width: 80, height: 80)
-
-                                Text(String(receipt.store_name.prefix(1)).uppercased())
-                                    .font(.spaceGrotesk(size: 36, weight: .bold))
-                                    .foregroundColor(primaryLogoColor)
-                            }
-                            .transition(.opacity)
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(receipt.store_name.capitalized)
-                                .font(.instrumentSerif(size: 28))
-                                .bold()
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .transition(.move(edge: .leading))
-
-                            Text(receipt.receipt_name)
-                                .font(.instrumentSans(size: 16))
-                                .foregroundColor(.secondary)
-                                .transition(.opacity)
-
-                            HStack {
-                                Image(systemName: "calendar")
-                                    .foregroundColor(.secondary)
-                                Text(receipt.purchase_date, style: .date)
-                                    .font(.instrumentSans(size: 14))
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.top, 4)
-                            .transition(.slide)
-                        }
-                    }
-                    .padding(.bottom, 8)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.7), value: animateContent)
-
-                    // Receipt images section
-                    if !receipt.image_urls.isEmpty || (receipt.image_url != "placeholder_url") {
-                        VStack(spacing: 8) {
-                            // Image carousel
-                            ZStack {
-                                // Main image display
-                                TabView(selection: $currentImageIndex) {
-                                    // Display images from image_urls array
-                                    ForEach(0..<(receipt.image_urls.isEmpty ? 1 : receipt.image_urls.count), id: \.self) { index in
-                                        let urlString = receipt.image_urls.isEmpty ? receipt.image_url : receipt.image_urls[index]
-                                        CustomAsyncImage(urlString: urlString) { image in
-                                                ZStack {
-                                                    image.resizable()
-                                                        .aspectRatio(contentMode: .fit)
-                                                        .cornerRadius(16)
-                                                        .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
-                                                        .scaleEffect(isZoomed ? zoomScale : 1.0)
-                                                        .offset(isZoomed ? dragOffset : .zero)
-                                                        .gesture(
-                                                            // Tap gesture for zooming
-                                                            TapGesture(count: 2).onEnded { _ in
-                                                                withAnimation(.spring()) {
-                                                                    isZoomed.toggle()
-                                                                    if isZoomed {
-                                                                        zoomScale = 2.0
-                                                                        showZoomControls = true
-                                                                    } else {
-                                                                        zoomScale = 1.0
-                                                                        dragOffset = .zero
-                                                                        lastDragValue = .zero
-                                                                        showZoomControls = false
-                                                                    }
-                                                                }
-                                                            }
-                                                            // Drag gesture for panning when zoomed
-                                                            .simultaneously(with:
-                                                                DragGesture()
-                                                                    .onChanged { value in
-                                                                        if isZoomed {
-                                                                            dragOffset = CGSize(
-                                                                                width: lastDragValue.width + value.translation.width,
-                                                                                height: lastDragValue.height + value.translation.height
-                                                                            )
-                                                                        }
-                                                                    }
-                                                                    .onEnded { value in
-                                                                        if isZoomed {
-                                                                            lastDragValue = dragOffset
-                                                                        }
-                                                                    }
-                                                            )
-                                                            // Magnification gesture for pinch zooming
-                                                            .simultaneously(with:
-                                                                MagnificationGesture()
-                                                                    .onChanged { value in
-                                                                        if isZoomed {
-                                                                            let newScale = zoomScale * value
-                                                                            zoomScale = min(max(newScale, minZoom), maxZoom)
-                                                                        }
-                                                                    }
-                                                            )
-                                                        )
-                                                        .transition(.scale)
-
-                                                    // Zoom controls overlay
-                                                    if isZoomed && showZoomControls {
-                                                        VStack {
-                                                            Spacer()
-
-                                                            HStack(spacing: 20) {
-                                                                // Zoom out button
-                                                                Button(action: {
-                                                                    withAnimation(.spring()) {
-                                                                        zoomScale = max(zoomScale - zoomIncrement, minZoom)
-                                                                    }
-                                                                }) {
-                                                                    Image(systemName: "minus.magnifyingglass")
-                                                                        .font(.system(size: 24))
-                                                                        .foregroundColor(.white)
-                                                                        .padding(12)
-                                                                        .background(Circle().fill(Color.black.opacity(0.7)))
-                                                                }
-                                                                .disabled(zoomScale <= minZoom)
-                                                                .opacity(zoomScale <= minZoom ? 0.5 : 1.0)
-
-                                                                // Fullscreen toggle button
-                                                                Button(action: {
-                                                                    withAnimation(.spring()) {
-                                                                        isFullscreen.toggle()
-                                                                    }
-                                                                }) {
-                                                                    Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                                                                        .font(.system(size: 24))
-                                                                        .foregroundColor(.white)
-                                                                        .padding(12)
-                                                                        .background(Circle().fill(Color.black.opacity(0.7)))
-                                                                }
-
-                                                                // Reset zoom button
-                                                                Button(action: {
-                                                                    withAnimation(.spring()) {
-                                                                        zoomScale = 2.0
-                                                                        dragOffset = .zero
-                                                                        lastDragValue = .zero
-                                                                    }
-                                                                }) {
-                                                                    Image(systemName: "arrow.counterclockwise")
-                                                                        .font(.system(size: 24))
-                                                                        .foregroundColor(.white)
-                                                                        .padding(12)
-                                                                        .background(Circle().fill(Color.black.opacity(0.7)))
-                                                                }
-
-                                                                // Zoom in button
-                                                                Button(action: {
-                                                                    withAnimation(.spring()) {
-                                                                        zoomScale = min(zoomScale + zoomIncrement, maxZoom)
-                                                                    }
-                                                                }) {
-                                                                    Image(systemName: "plus.magnifyingglass")
-                                                                        .font(.system(size: 24))
-                                                                        .foregroundColor(.white)
-                                                                        .padding(12)
-                                                                        .background(Circle().fill(Color.black.opacity(0.7)))
-                                                                }
-                                                                .disabled(zoomScale >= maxZoom)
-                                                                .opacity(zoomScale >= maxZoom ? 0.5 : 1.0)
-
-                                                                // Exit zoom mode button
-                                                                Button(action: {
-                                                                    withAnimation(.spring()) {
-                                                                        isZoomed = false
-                                                                        zoomScale = 1.0
-                                                                        dragOffset = .zero
-                                                                        lastDragValue = .zero
-                                                                        showZoomControls = false
-                                                                    }
-                                                                }) {
-                                                                    Image(systemName: "xmark.circle.fill")
-                                                                        .font(.system(size: 24))
-                                                                        .foregroundColor(.white)
-                                                                        .padding(12)
-                                                                        .background(Circle().fill(Color.black.opacity(0.7)))
-                                                                }
-                                                            }
-                                                            .padding(.bottom, 20)
-                                                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                                                        }
-                                                    }
-                                                }
-                                        } placeholder: {
-                                            ProgressView()
-                                                .frame(height: 200)
-                                                .transition(.opacity)
-                                        }
-                                        .tag(index)
-                                    }
-                                }
-                                .tabViewStyle(PageTabViewStyle(indexDisplayMode: receipt.image_urls.count > 1 ? .always : .never))
-                                .frame(height: 300)
-                                .cornerRadius(16)
-                                .animation(.easeInOut, value: currentImageIndex)
-
-                                // Image counter pill (only show if multiple images)
-                                if receipt.image_urls.count > 1 {
-                                    Text("\(currentImageIndex + 1)/\(receipt.image_urls.count)")
-                                        .font(.instrumentSans(size: 14, weight: .medium))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(
-                                            Capsule()
-                                                .fill(Color.black.opacity(0.6))
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .stroke(
+                                            LinearGradient(
+                                                colors: [primaryLogoColor.opacity(0.4), secondaryLogoColor.opacity(0.2)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            ),
+                                            lineWidth: 2
                                         )
-                                        .padding(8)
-                                        .transition(.opacity)
-                                        .animation(.easeInOut, value: currentImageIndex)
-                                        .position(x: UIScreen.main.bounds.width - 60, y: 30)
-                                }
-                            }
+                                )
 
-                            // Zoom hint text
-                            if receipt.image_urls.count > 0 {
-                                VStack(spacing: 4) {
-                                    if isZoomed {
-                                        Text("Current zoom: \(Int(zoomScale * 100))%")
-                                            .font(.instrumentSans(size: 14, weight: .medium))
-                                            .foregroundColor(.primary)
+                            Text(String(receipt.store_name.prefix(1)).uppercased())
+                                .font(.spaceGrotesk(size: 36, weight: .bold))
+                                .foregroundColor(primaryLogoColor)
+                        }
+                        .scaleEffect(animateContent ? 1.0 : 0.8)
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                }
 
-                                        Text("Pinch to zoom, drag to pan")
-                                            .font(.instrumentSans(size: 12))
-                                            .foregroundColor(.secondary)
-                                    } else {
-                                        Text("Double-tap to zoom in")
-                                            .font(.instrumentSans(size: 12))
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+                    Text(receipt.store_name.capitalized)
+                        .textHierarchy(.pageTitle)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .accessibilityAddTraits(.isHeader)
+
+                    Text(receipt.receipt_name)
+                        .textHierarchy(.body)
+                        .transition(.opacity)
+
+                    HStack(spacing: 12) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 14))
+                                .foregroundColor(secondaryLogoColor)
+                            Text(receipt.purchase_date, style: .date)
+                                .font(.instrumentSans(size: 14))
+                                .fontWeight(.medium)
                                             .foregroundColor(.secondary)
                                     }
-                                }
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 16)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9))
-                                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                                )
-                                .padding(.top, 8)
-                                .transition(.opacity)
-                                .animation(.easeInOut, value: isZoomed)
+
+                        if !receipt.store_address.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(tertiaryLogoColor)
+                                Text(formatAddress(receipt.store_address))
+                                    .font(.instrumentSans(size: 14))
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
                             }
                         }
-                        .transition(.opacity)
                     }
+                    .transition(.slide)
+                }
+                .offset(x: animateContent ? 0 : -20)
+                .opacity(animateContent ? 1 : 0)
+            }
 
-                    // Summary card with payment, currency, and location details
-                    VStack(alignment: .leading, spacing: 20) {
-                        // Total amount and tax section
+            // Total Amount Card
                         VStack(spacing: 16) {
                             HStack {
-                                VStack(alignment: .leading) {
-                                    Text("Receipt Total")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Total Amount")
                                         .font(.instrumentSans(size: 14))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
 
-                                    // Original currency amount
                                     Text(currencyManager.formatAmount(receipt.total_amount, currencyCode: receipt.currency))
-                                        .font(.spaceGrotesk(size: 32, weight: .bold))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
+                            .font(.spaceGrotesk(size: 36, weight: .bold))
+                            .foregroundColor(receipt.savings > 0 ? .green : .primary)
 
-                                    // Only show conversion if different from receipt currency
-                                    // and the amount is not zero
                                     if receipt.currency != currencyManager.preferredCurrency && receipt.total_amount != 0 {
                                         HStack(spacing: 4) {
                                             Text("≈")
                                                 .font(.instrumentSans(size: 14))
                                                 .foregroundColor(.secondary)
-
                                             Text(currencyManager.formatAmount(
                                                 currencyManager.convertAmountSync(receipt.total_amount,
                                                                                from: receipt.currency,
                                                                                to: currencyManager.preferredCurrency),
                                                 currencyCode: currencyManager.preferredCurrency))
-                                                .font(.instrumentSans(size: 16, weight: .medium))
+                                    .font(.instrumentSans(size: 16))
+                                    .fontWeight(.medium)
                                                 .foregroundColor(.secondary)
                                         }
-                                        .padding(.top, 2)
                                     }
                                 }
 
                                 Spacer()
 
-                                VStack(alignment: .trailing) {
-                                    Text("Tax")
-                                        .font(.instrumentSans(size: 14))
-                                        .foregroundColor(.secondary)
+                    // Savings Badge
+                    if receipt.savings > 0 {
+                        VStack(spacing: 4) {
+                            Text("SAVED")
+                                .font(.instrumentSans(size: 10))
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .tracking(1)
 
-                                    // Original currency tax
-                                    Text(currencyManager.formatAmount(receipt.total_tax, currencyCode: receipt.currency))
-                                        .font(.spaceGrotesk(size: 22, weight: .bold))
-                                        .foregroundColor(.secondary)
+                            Text(currencyManager.formatAmount(receipt.savings, currencyCode: receipt.currency))
+                                .font(.spaceGrotesk(size: 18, weight: .bold))
+                                .foregroundColor(.white)
 
-                                    // Only show conversion if different from receipt currency
-                                    // and the tax amount is not zero
-                                    if receipt.currency != currencyManager.preferredCurrency && receipt.total_tax != 0 {
-                                        HStack(spacing: 4) {
-                                            Text("≈")
-                                                .font(.instrumentSans(size: 12))
-                                                .foregroundColor(.secondary.opacity(0.7))
-
+                            if receipt.currency != currencyManager.preferredCurrency && receipt.savings != 0 {
                                             Text(currencyManager.formatAmount(
-                                                currencyManager.convertAmountSync(receipt.total_tax,
+                                    currencyManager.convertAmountSync(receipt.savings,
                                                                                from: receipt.currency,
                                                                                to: currencyManager.preferredCurrency),
                                                 currencyCode: currencyManager.preferredCurrency))
-                                                .font(.instrumentSans(size: 14))
-                                                .foregroundColor(.secondary.opacity(0.7))
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Only show this section if there are savings
-                            if receipt.savings > 0 {
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text("Original Price")
-                                            .font(.instrumentSans(size: 14))
-                                            .foregroundColor(.secondary)
-
-                                        // Original currency price
-                                        Text(currencyManager.formatAmount(receipt.originalPrice, currencyCode: receipt.currency))
-                                            .font(.spaceGrotesk(size: 24, weight: .bold))
-                                            .foregroundColor(.secondary)
-                                            .strikethrough(true, color: .red.opacity(0.7))
-
-                                        // Only show conversion if different from receipt currency
-                                        // and the original price is not zero
-                                        if receipt.currency != currencyManager.preferredCurrency && receipt.originalPrice != 0 {
-                                            HStack(spacing: 4) {
-                                                Text("≈")
-                                                    .font(.instrumentSans(size: 12))
-                                                    .foregroundColor(.secondary.opacity(0.7))
-
-                                                Text(currencyManager.formatAmount(
-                                                    currencyManager.convertAmountSync(receipt.originalPrice,
-                                                                                   from: receipt.currency,
-                                                                                   to: currencyManager.preferredCurrency),
-                                                    currencyCode: currencyManager.preferredCurrency))
-                                                    .font(.instrumentSans(size: 14))
-                                                    .foregroundColor(.secondary.opacity(0.7))
-                                                    .strikethrough(true, color: .red.opacity(0.5))
-                                            }
-                                        }
-                                    }
-
-                                    Spacer()
-
-                                    VStack(alignment: .trailing) {
-                                        Text("Savings")
-                                            .font(.instrumentSans(size: 14))
-                                            .foregroundColor(.green)
-
-                                        // Original currency savings
-                                        Text(currencyManager.formatAmount(receipt.savings, currencyCode: receipt.currency))
-                                            .font(.spaceGrotesk(size: 18, weight: .bold))
-                                            .foregroundColor(.green)
-
-                                        // Only show conversion if different from receipt currency
-                                        // and the savings amount is not zero
-                                        if receipt.currency != currencyManager.preferredCurrency && receipt.savings != 0 {
-                                            HStack(spacing: 4) {
-                                                Text("≈")
-                                                    .font(.instrumentSans(size: 12))
-                                                    .foregroundColor(.green.opacity(0.7))
-
-                                                Text(currencyManager.formatAmount(
-                                                    currencyManager.convertAmountSync(receipt.savings,
-                                                                                   from: receipt.currency,
-                                                                                   to: currencyManager.preferredCurrency),
-                                                    currencyCode: currencyManager.preferredCurrency))
-                                                    .font(.instrumentSans(size: 14))
-                                                    .foregroundColor(.green.opacity(0.7))
-                                            }
-                                        }
-                                    }
-                                }
-                                .padding(.top, 4)
-                                .padding(.bottom, 4)
-                                .padding(.horizontal, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.green.opacity(0.1))
-                                )
+                                    .font(.instrumentSans(size: 12))
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.white.opacity(0.8))
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.green, Color.green.opacity(0.8)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .shadow(color: Color.green.opacity(0.3), radius: 8, x: 0, y: 4)
+                        )
+                    }
+                }
+            }
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                colorScheme == .dark ? Color.black.opacity(0.4) : Color.white.opacity(0.8),
+                                colorScheme == .dark ? Color.black.opacity(0.2) : Color.white.opacity(0.6)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [primaryLogoColor.opacity(0.3), secondaryLogoColor.opacity(0.1)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+                    .shadow(color: primaryLogoColor.opacity(0.1), radius: 12, x: 0, y: 6)
+          )
+        }
+        .offset(y: animateContent ? 0 : 30)
+        .opacity(animateContent ? 1 : 0)
+        .animation(.spring(response: 0.8, dampingFraction: 0.8).delay(0.3), value: animateContent)
+    }
 
-                        Divider()
-                            .padding(.vertical, 12)
+    // MARK: - Tab Navigation Section
+    private var tabNavigationSection: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(["Details", "Items", "Images", "Edit"].enumerated()), id: \.element) { index, tab in
+                Button {
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                        selectedTab = index
+                    }
+                } label: {
+                    VStack(spacing: 8) {
+                        // Icons with increased size
+                        Group {
+                            switch tab {
+                            case "Details":
+                                Image(systemName: "info.circle.fill")
+                            case "Items":
+                                Image(systemName: "list.bullet.rectangle.fill")
+                            case "Images":
+                                Image(systemName: "photo.circle.fill")
+                            case "Edit":
+                                Image(systemName: "pencil.circle.fill")
+                            default:
+                                Image(systemName: "circle.fill")
+                            }
+                        }
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(selectedTab == index ? primaryLogoColor : .secondary)
+                        
+                        // Add text labels
+                        Text(tab)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(selectedTab == index ? primaryLogoColor : .secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(selectedTab == index ? 
+                                  primaryLogoColor.opacity(0.15) : Color.clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(selectedTab == index ? 
+                                           primaryLogoColor.opacity(0.4) : Color.clear, lineWidth: 1.5)
+                            )
+                    )
+                    .scaleEffect(selectedTab == index ? 1.02 : 1.0)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedTab)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel(accessibilityLabel(for: tab))
+                .accessibilityHint(accessibilityHint(for: tab))
+            }
+        }
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            colorScheme == .dark ? Color.black.opacity(0.4) : Color.white.opacity(0.9),
+                            colorScheme == .dark ? Color.black.opacity(0.2) : Color.white.opacity(0.7)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(
+                            LinearGradient(
+                                colors: [primaryLogoColor.opacity(0.2), secondaryLogoColor.opacity(0.1)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: primaryLogoColor.opacity(0.08), radius: 12, x: 0, y: 6)
+        )
+    }
 
-                        // Payment & Currency section
-                        HStack(spacing: 16) {
+    // MARK: - Tab Content Section
+    private var tabContentSection: some View {
+        VStack(spacing: 20) {
+            switch selectedTab {
+            case 0:
+                detailsTab
+            case 1:
+                itemsTab
+            case 2:
+                imagesTab
+            case 3:
+                editTab
+            default:
+                detailsTab
+            }
+        }
+        .transition(.asymmetric(
+            insertion: .move(edge: .trailing).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        ))
+    }
+
+    // MARK: - Details Tab
+    private var detailsTab: some View {
+        VStack(spacing: 20) {
+            // Payment & Currency Info
+            VStack(spacing: 16) {
+                HStack {
                             IconDetailView(
                                 icon: "creditcard.fill",
-                                title: "Payment",
+                        title: "Payment Method",
                                 detail: receipt.payment_method,
                                 color: primaryLogoColor
                             )
-                            .transition(.move(edge: .leading))
 
-                            VStack(alignment: .leading, spacing: 4) {
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 4) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "dollarsign.circle.fill")
                                         .foregroundColor(secondaryLogoColor)
-
                                     Text("Currency")
                                         .font(.instrumentSans(size: 14))
+                                .fontWeight(.medium)
                                         .foregroundColor(.secondary)
                                 }
 
-                                // Show original currency
                                 Text(receipt.currency)
                                     .font(.instrumentSans(size: 16))
+                            .fontWeight(.semibold)
                                     .foregroundColor(.primary)
 
-                                // Show conversion info if different from preferred currency
                                 if receipt.currency != currencyManager.preferredCurrency {
                                     HStack(spacing: 4) {
                                         Text("Converted to")
                                             .font(.instrumentSans(size: 12))
                                             .foregroundColor(.secondary)
-
                                         Text(currencyManager.preferredCurrency)
-                                            .font(.instrumentSans(size: 12, weight: .medium))
+                                    .font(.instrumentSans(size: 12))
+                                    .fontWeight(.medium)
                                             .foregroundColor(.blue)
                                     }
 
-                                    // Show last updated timestamp with refresh button
-                                    HStack {
-                                        Text("Rates: \(currencyManager.getLastUpdatedString())")
-                                            .font(.instrumentSans(size: 10))
-                                            .foregroundColor(.secondary.opacity(0.7))
-
-                                        Spacer()
-
-                                        Button {
-                                            refreshExchangeRates()
-                                        } label: {
-                                            Image(systemName: isRefreshingRates ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
-                                                .foregroundColor(.blue)
-                                                .font(.system(size: 14))
-                                                .rotationEffect(Angle(degrees: isRefreshingRates ? 360 : 0))
-                                                .animation(isRefreshingRates ? Animation.linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshingRates)
-                                        }
-                                        .disabled(isRefreshingRates)
-                                    }
+                                    Text("Rates: \(currencyManager.getLastUpdatedString())")
+                                        .font(.instrumentSans(size: 10))
+                                        .foregroundColor(.secondary.opacity(0.7))
                                 }
                             }
-                            .transition(.move(edge: .bottom))
-                        }
-                        .animation(.spring(response: 0.6, dampingFraction: 0.7), value: animateContent)
+                }
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white.opacity(0.7))
+                        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
+                )
 
-                        // Full location section – shows the entire store address on multiple lines.
-                        if !receipt.store_address.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Image(systemName: "mappin.circle.fill")
-                                        .font(.system(size: 20))
-                                        .foregroundColor(tertiaryLogoColor)
-                                    Text("Location")
-                                        .font(.instrumentSans(size: 14))
-                                        .foregroundColor(.secondary)
+                // Tax Information
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Tax Amount")
+                            .font(.instrumentSans(size: 14))
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
 
-                                    Spacer()
+                        Text(currencyManager.formatAmount(receipt.total_tax, currencyCode: receipt.currency))
+                            .font(.spaceGrotesk(size: 24, weight: .bold))
+                            .foregroundColor(.primary)
 
-                                    // Copy button for location
-                                    Button(action: {
-                                        copyToClipboard(receipt.store_address)
-                                    }) {
-                                        Image(systemName: "doc.on.doc")
-                                            .font(.system(size: 14))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-                                Text(receipt.store_address)
-                                    .font(.instrumentSans(size: 14))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-                                    .lineLimit(nil)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                            }
-                            .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: animateContent)
+                        if receipt.currency != currencyManager.preferredCurrency && receipt.total_tax != 0 {
+                            Text(currencyManager.formatAmount(
+                                currencyManager.convertAmountSync(receipt.total_tax,
+                                                               from: receipt.currency,
+                                                               to: currencyManager.preferredCurrency),
+                                currencyCode: currencyManager.preferredCurrency))
+                                .font(.instrumentSans(size: 14))
+                                .foregroundColor(.secondary)
                         }
                     }
-                    .padding(20)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white.opacity(0.7))
-                            .shadow(color: colorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
-                    )
-                    .offset(y: animateContent ? 0 : 20)
-                    .opacity(animateContent ? 1 : 0)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.2), value: animateContent)
 
-                    // Items section
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Items")
-                            .font(.instrumentSerif(size: 24))
-                            .fontWeight(.bold)
-                            .padding(.bottom, 5)
+                    Spacer()
 
+                    // Tax percentage
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Tax Rate")
+                            .font(.instrumentSans(size: 14))
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+
+                        let taxRate = receipt.total_amount > 0 ? (receipt.total_tax / receipt.total_amount) * 100 : 0
+                        Text("\(taxRate, specifier: "%.1f")%")
+                            .font(.spaceGrotesk(size: 24, weight: .bold))
+                            .foregroundColor(secondaryLogoColor)
+                    }
+                }
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white.opacity(0.7))
+                        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
+                )
+            }
+
+
+        }
+    }
+
+    // MARK: - Items Tab
+    private var itemsTab: some View {
+        VStack(spacing: 12) {
                         ForEach(Array(receipt.items.enumerated()), id: \.element.id) { index, item in
-                            ReceiptItemCard(item: item, logoColors: logoColors.isEmpty ? [.gray] : logoColors, index: index, currencyCode: receipt.currency)
+                ModernReceiptItemCard(
+                    item: item,
+                    logoColors: logoColors.isEmpty ? [.gray] : logoColors,
+                    index: index,
+                    currencyCode: receipt.currency
+                )
                                 .transition(.asymmetric(
-                                    insertion: .opacity.combined(with: .scale(scale: 0.9)).combined(with: .offset(y: 20)),
+                                    insertion: .opacity.combined(with: .scale(scale: 0.9)).combined(with: .offset(y: 15)),
                                     removal: .opacity.combined(with: .scale(scale: 0.9))
                                 ))
-                                .offset(y: animateContent ? 0 : 20)
+                                .offset(y: animateContent ? 0 : 15)
                                 .opacity(animateContent ? 1 : 0)
                                 .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1 + Double(index) * 0.05), value: animateContent)
                         }
                     }
-                    .padding(.top, 8)
-                }
-                .padding(20)
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
+    }
+
+    // MARK: - Images Tab
+    private var imagesTab: some View {
+        VStack(spacing: 20) {
+            if !receipt.image_urls.isEmpty || (receipt.image_url != "placeholder_url") {
+                // Image carousel
+                ZStack {
+                    TabView(selection: $currentImageIndex) {
+                        ForEach(0..<(receipt.image_urls.isEmpty ? 1 : receipt.image_urls.count), id: \.self) { index in
+                            let urlString = receipt.image_urls.isEmpty ? receipt.image_url : receipt.image_urls[index]
+                            CustomAsyncImage(urlString: urlString) { image in
+                                ZStack {
+                                    image.resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .cornerRadius(20)
+                                        .shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 6)
+                                        .scaleEffect(isZoomed ? zoomScale : 1.0)
+                                        .offset(isZoomed ? dragOffset : .zero)
+                                        .gesture(
+                                            TapGesture(count: 2).onEnded { _ in
                         withAnimation(.spring()) {
-                            showEditSheet = true
+                                                    isZoomed.toggle()
+                                                    if isZoomed {
+                                                        zoomScale = 2.0
+                                                        showZoomControls = true
+                                                    } else {
+                                                        zoomScale = 1.0
+                                                        dragOffset = .zero
+                                                        lastDragValue = .zero
+                                                        showZoomControls = false
+                                                    }
+                                                }
+                                            }
+                                            .simultaneously(with:
+                                                DragGesture()
+                                                    .onChanged { value in
+                                                        if isZoomed {
+                                                            dragOffset = CGSize(
+                                                                width: lastDragValue.width + value.translation.width,
+                                                                height: lastDragValue.height + value.translation.height
+                                                            )
+                                                        }
+                                                    }
+                                                    .onEnded { value in
+                                                        if isZoomed {
+                                                            lastDragValue = dragOffset
+                                                        }
+                                                    }
+                                            )
+                                            .simultaneously(with:
+                                                MagnificationGesture()
+                                                    .onChanged { value in
+                                                        if isZoomed {
+                                                            let newScale = zoomScale * value
+                                                            zoomScale = min(max(newScale, minZoom), maxZoom)
+                                                        }
+                                                    }
+                                            )
+                                        )
+
+                                    // Zoom controls overlay
+                                    if isZoomed && showZoomControls {
+                                        VStack {
+                                            Spacer()
+
+                                            HStack(spacing: 20) {
+                                                zoomControlButton(icon: "minus.magnifyingglass", action: {
+                                                    withAnimation(.spring()) {
+                                                        zoomScale = max(zoomScale - zoomIncrement, minZoom)
+                                                    }
+                                                }, disabled: zoomScale <= minZoom)
+
+                                                zoomControlButton(icon: "arrow.counterclockwise", action: {
+                                                    withAnimation(.spring()) {
+                                                        zoomScale = 2.0
+                                                        dragOffset = .zero
+                                                        lastDragValue = .zero
+                                                    }
+                                                })
+
+                                                zoomControlButton(icon: "plus.magnifyingglass", action: {
+                                                    withAnimation(.spring()) {
+                                                        zoomScale = min(zoomScale + zoomIncrement, maxZoom)
+                                                    }
+                                                }, disabled: zoomScale >= maxZoom)
+
+                                                zoomControlButton(icon: "xmark.circle.fill", action: {
+                                                    withAnimation(.spring()) {
+                                                        isZoomed = false
+                                                        zoomScale = 1.0
+                                                        dragOffset = .zero
+                                                        lastDragValue = .zero
+                                                        showZoomControls = false
+                                                    }
+                                                })
+                                            }
+                                            .padding(.bottom, 20)
+                                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                                        }
+                                    }
+                                }
+                            } placeholder: {
+                                ProgressView()
+                                    .frame(height: 300)
+                                    .transition(.opacity)
+                            }
+                            .tag(index)
                         }
-                    } label: {
-                        HStack {
-                            Image(systemName: "pencil.circle.fill")
-                                .font(.system(size: 20))
-                            Text("Edit")
-                                .font(.instrumentSans(size: 16))
-                        }
-                        .foregroundColor(.blue)
                     }
-                    .transition(.scale)
+                    .tabViewStyle(PageTabViewStyle(indexDisplayMode: receipt.image_urls.count > 1 ? .always : .never))
+                    .frame(height: 300)
+                    .cornerRadius(20)
+                    .animation(.easeInOut, value: currentImageIndex)
+
+                    // Image counter pill
+                    if receipt.image_urls.count > 1 {
+                        Text("\(currentImageIndex + 1)/\(receipt.image_urls.count)")
+                            .font(.instrumentSans(size: 14, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(Color.black.opacity(0.6))
+                            )
+                            .padding(8)
+                            .transition(.opacity)
+                            .animation(.easeInOut, value: currentImageIndex)
+                            .position(x: UIScreen.main.bounds.width - 60, y: 30)
+                    }
                 }
 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
+                // Zoom hint text
+                VStack(spacing: 4) {
+                    if isZoomed {
+                        Text("Current zoom: \(Int(zoomScale * 100))%")
+                            .font(.instrumentSans(size: 14))
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
+
+                        Text("Pinch to zoom, drag to pan")
+                            .font(.instrumentSans(size: 12))
                             .foregroundColor(.secondary)
-                            .font(.system(size: 24))
+                    } else {
+                        Text("Double-tap to zoom in")
+                            .font(.instrumentSans(size: 12))
+                            .foregroundColor(.secondary)
                     }
-                    .transition(.scale)
                 }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9))
+                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                )
+                .transition(.opacity)
+                .animation(.easeInOut, value: isZoomed)
+            } else {
+                EmptyStateView(message: "No images available for this receipt.")
+                    .frame(height: 300)
             }
         }
-        .sheet(isPresented: $showEditSheet) {
-            EditReceiptView(receipt: receipt) { updatedReceipt in
-                self.updatedReceipt = updatedReceipt
-                if let onUpdate = onUpdate {
-                    onUpdate(updatedReceipt)
-                }
+    }
+
+    // MARK: - Edit Tab
+    private var editTab: some View {
+        InlineReceiptEditView(receipt: $receipt) { updatedReceipt in
+            self.updatedReceipt = updatedReceipt
+            if let onUpdate = onUpdate {
+                onUpdate(updatedReceipt)
             }
-            .environmentObject(appState)
+            // Reload logo when receipt is updated
+            loadLogoSafely()
         }
-        .alert(isPresented: $showRateRefreshAlert) {
-            Alert(
-                title: Text("Exchange Rates Updated"),
-                message: Text(currencyManager.conversionError == nil ?
-                              "Exchange rates have been refreshed successfully." :
-                              "Could not refresh exchange rates. Using cached rates."),
-                dismissButton: .default(Text("OK"))
-            )
-        }
-        // Fullscreen image overlay
-        .fullScreenCover(isPresented: $isFullscreen) {
+        .opacity(animateContent ? 1 : 0)
+        .offset(y: animateContent ? 0 : 20)
+        .animation(.spring(response: 0.8, dampingFraction: 0.7).delay(0.1), value: animateContent)
+    }
+
+    // MARK: - Fullscreen Image View
+    private var fullscreenImageView: some View {
             ZStack {
                 Color.black.ignoresSafeArea()
 
@@ -661,7 +734,6 @@ struct ReceiptDetailView: View {
                             .scaleEffect(zoomScale)
                             .offset(dragOffset)
                             .gesture(
-                                // Tap gesture for zooming
                                 TapGesture(count: 2).onEnded { _ in
                                     withAnimation(.spring()) {
                                         if zoomScale > 1.0 {
@@ -673,7 +745,6 @@ struct ReceiptDetailView: View {
                                         }
                                     }
                                 }
-                                // Drag gesture for panning
                                 .simultaneously(with:
                                     DragGesture()
                                         .onChanged { value in
@@ -686,7 +757,6 @@ struct ReceiptDetailView: View {
                                             lastDragValue = dragOffset
                                         }
                                 )
-                                // Magnification gesture for pinch zooming
                                 .simultaneously(with:
                                     MagnificationGesture()
                                         .onChanged { value in
@@ -778,37 +848,34 @@ struct ReceiptDetailView: View {
             }
             .statusBar(hidden: true)
             .onDisappear {
-                // Reset zoom when exiting fullscreen
                 if !isZoomed {
                     zoomScale = 1.0
                     dragOffset = .zero
                     lastDragValue = .zero
                 }
-            }
-        }
-        .onAppear {
-            // Use the enhanced logo fetching method
-            Task {
-                let (fetchedImage, fetchedColors) = await LogoService.shared.fetchLogoForReceipt(receipt)
-                await MainActor.run {
-                    logoImage = fetchedImage
-                    logoColors = fetchedColors
-                }
-            }
-
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.2)) {
-                animateContent = true
-            }
         }
     }
 
+    // MARK: - Helper Views
+    private func zoomControlButton(icon: String, action: @escaping () -> Void, disabled: Bool = false) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 24))
+                .foregroundColor(.white)
+                .padding(12)
+                .background(Circle().fill(Color.black.opacity(0.7)))
+        }
+        .disabled(disabled)
+        .opacity(disabled ? 0.5 : 1.0)
+    }
+
+    // MARK: - Background Gradient
     private var backgroundGradient: some View {
         ZStack {
             Rectangle()
                 .fill(colorScheme == .dark ? Color.black : Color.white)
 
             GeometryReader { geometry in
-                // Ensure we have colors to work with
                 if !logoColors.isEmpty {
                     ForEach(0..<min(logoColors.count, 3), id: \.self) { i in
                         Circle()
@@ -822,7 +889,6 @@ struct ReceiptDetailView: View {
                             .transition(.scale)
                     }
                 } else {
-                    // Fallback if no colors are available
                     Circle()
                         .fill(Color.gray.opacity(colorScheme == .dark ? 0.15 : 0.1))
                         .frame(width: geometry.size.width * 0.7)
@@ -833,6 +899,7 @@ struct ReceiptDetailView: View {
         }
     }
 
+    // MARK: - Computed Properties
     private var primaryLogoColor: Color {
         logoColors.first ?? (colorScheme == .dark ? .white : .black)
     }
@@ -845,6 +912,7 @@ struct ReceiptDetailView: View {
         logoColors.count > 2 ? logoColors[2] : secondaryLogoColor.opacity(0.8)
     }
 
+    // MARK: - Helper Functions
     private func formatAddress(_ address: String) -> String {
         let components = address.components(separatedBy: ",")
         return components.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? address
@@ -852,122 +920,226 @@ struct ReceiptDetailView: View {
 
     private func copyToClipboard(_ text: String) {
         UIPasteboard.general.string = text
-        // You could add a toast notification here if desired
     }
 
-    // Helper function to get the appropriate currency symbol
-    private func getCurrencySymbol() -> String {
-        return currencyManager.getCurrencySymbol(for: receipt.currency)
+    private func loadLogo() {
+        loadLogoSafely()
     }
-
-    // Function to refresh exchange rates
-    private func refreshExchangeRates() {
-        // Set loading state
-        isRefreshingRates = true
-
-        // Refresh rates asynchronously
-        Task {
-            await currencyManager.refreshExchangeRates()
-
-            // Update UI on main thread
+    
+    private func loadLogoSafely() {
+        // Cancel any existing task
+        logoLoadingTask?.cancel()
+        
+        logoLoadingTask = Task {
+            let (image, colors) = await LogoService.shared.fetchLogoForReceipt(receipt)
+            
+            // Check if task was cancelled
+            guard !Task.isCancelled else { return }
+            
             await MainActor.run {
-                isRefreshingRates = false
-                showRateRefreshAlert = true
+                logoImage = image
+                logoColors = colors
+            }
+        }
+    }
+
+    // MARK: - Accessibility Helper Functions
+    private func accessibilityLabel(for tab: String) -> String {
+        switch tab {
+        case "Details": return "Receipt Details"
+        case "Items": return "Receipt Items"
+        case "Images": return "Receipt Images"
+        case "Edit": return "Edit Receipt"
+        default: return tab
+        }
+    }
+
+    private func accessibilityHint(for tab: String) -> String {
+        switch tab {
+        case "Details": return "View payment method, tax, and other receipt details"
+        case "Items": return "View list of purchased items"
+        case "Images": return "View receipt images with zoom capability"
+        case "Edit": return "Edit receipt information inline"
+        default: return "Tap to switch to \(tab) tab"
+        }
+    }
+}
+
+// MARK: - Modern Receipt Item Card
+struct ModernReceiptItemCard: View {
+    let item: ReceiptItem
+    let logoColors: [Color]
+    let index: Int
+    let currencyCode: String
+    @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var currencyManager = CurrencyManager.shared
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Item icon - reduced size
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                itemColor.opacity(0.2),
+                                itemColor.opacity(0.1)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 40, height: 40)
+                    .overlay(
+                        Circle()
+                            .stroke(itemColor.opacity(0.3), lineWidth: 1)
+                    )
+
+                if item.isDiscount {
+                    Image(systemName: "tag.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.green)
+                } else {
+                    Text(String(item.name.prefix(1)).uppercased())
+                        .font(.spaceGrotesk(size: 16, weight: .bold))
+                        .foregroundColor(itemColor)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.name)
+                    .font(.instrumentSans(size: 14))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+
+                if !item.category.isEmpty {
+                    Text(item.category)
+                        .font(.instrumentSans(size: 11))
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(itemColor.opacity(0.1))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(itemColor.opacity(0.3), lineWidth: 1)
+                                )
+                        )
+                }
+
+                if item.isDiscount, let description = item.discountDescription {
+                    Text(description)
+                        .font(.instrumentSans(size: 11))
+                        .foregroundColor(.green)
+                        .padding(.top, 1)
+                }
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 3) {
+                HStack(spacing: 4) {
+                    if let originalPrice = item.originalPrice, originalPrice > 0, originalPrice != item.price {
+                        Text(currencyManager.formatAmount(originalPrice, currencyCode: currencyCode))
+                            .font(.instrumentSans(size: 12))
+                            .foregroundColor(.secondary)
+                            .strikethrough(true, color: .green.opacity(0.7))
+                    }
+
+                    Text(currencyManager.formatAmount(item.price, currencyCode: currencyCode))
+                        .font(.spaceGrotesk(size: 16, weight: .bold))
+                        .foregroundColor(itemPriceColor)
+                }
+
+                if item.isDiscount {
+                    Text("SAVED")
+                        .font(.instrumentSans(size: 9))
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.green)
+                        )
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            colorScheme == .dark ? Color.black.opacity(0.4) : Color.white.opacity(0.8),
+                            colorScheme == .dark ? Color.black.opacity(0.2) : Color.white.opacity(0.6)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(itemColor.opacity(0.2), lineWidth: 1)
+                )
+        )
+        .shadow(color: itemColor.opacity(0.1), radius: 6, x: 0, y: 3)
+    }
+
+    private var itemColor: Color {
+        if item.isDiscount {
+            return .green
+        } else if logoColors.count > 0 {
+            return logoColors[index % logoColors.count]
+        }
+        return .blue
+    }
+
+    private var itemPriceColor: Color {
+        if item.isDiscount {
+            return .green
+        } else if item.price == 0 {
+            return .green
+        } else if let originalPrice = item.originalPrice, originalPrice > item.price {
+            return .green
+        } else {
+            return .primary
+        }
+    }
+}
+
+// MARK: - Icon Detail View
+struct IconDetailView: View {
+    let icon: String
+    let title: String
+    let detail: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundColor(color)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.instrumentSans(size: 14))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+
+                Text(detail)
+                    .font(.instrumentSans(size: 16))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
             }
         }
     }
 }
 
-// Helper view for displaying icon with title and detail
-//struct IconDetailView: View {
-//    let icon: String
-//    let title: String
-//    let detail: String
-//    let color: Color
-//
-//    var body: some View {
-//        HStack(spacing: 12) {
-//            Image(systemName: icon)
-//                .font(.system(size: 20))
-//                .foregroundColor(color)
-//
-//            VStack(alignment: .leading, spacing: 4) {
-//                Text(title)
-//                    .font(.instrumentSans(size: 14))
-//                    .foregroundColor(.secondary)
-//
-//                Text(detail)
-//                    .font(.instrumentSans(size: 16))
-//                    .foregroundColor(.primary)
-//            }
-//        }
-//    }
-//}
-
-// Item card view
-//struct ItemCard: View {
-//    let item: ReceiptItem
-//    let logoColors: [Color]
-//    let index: Int
-//    @Environment(\.colorScheme) private var colorScheme
-//
-//    var body: some View {
-//        HStack {
-//            VStack(alignment: .leading, spacing: 4) {
-//                Text(item.name)
-//                    .font(.instrumentSans(size: 16, weight: .medium))
-//                    .foregroundColor(.primary)
-//
-//                Text(item.category)
-//                    .font(.instrumentSans(size: 12))
-//                    .foregroundColor(.secondary)
-//                    .padding(.horizontal, 8)
-//                    .padding(.vertical, 2)
-//                    .background(
-//                        Capsule()
-//                            .fill(categoryColor.opacity(0.1))
-//                    )
-//
-//                if item.isDiscount, let description = item.discountDescription {
-//                    Text(description)
-//                        .font(.instrumentSans(size: 12))
-//                        .foregroundColor(.red)
-//                        .padding(.top, 2)
-//                }
-//            }
-//
-//            Spacer()
-//
-//            VStack(alignment: .trailing, spacing: 4) {
-//                Text("$\(item.price, specifier: "%.2f")")
-//                    .font(.instrumentSans(size: 18, weight: .medium))
-//                    .foregroundColor(item.isDiscount ? .red : .primary)
-//
-//                if item.isDiscount, let originalPrice = item.originalPrice {
-//                    Text("$\(originalPrice, specifier: "%.2f")")
-//                        .font(.instrumentSans(size: 14))
-//                        .foregroundColor(.secondary)
-//                        .strikethrough(true, color: .red.opacity(0.7))
-//                }
-//            }
-//        }
-//        .padding()
-//        .background(
-//            RoundedRectangle(cornerRadius: 12)
-//                .fill(colorScheme == .dark ? Color(.systemGray6) : Color.white)
-//                .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
-//        )
-//    }
-//
-//    private var categoryColor: Color {
-//        if logoColors.count > 0 {
-//            return logoColors[index % logoColors.count]
-//        }
-//        return .blue
-//    }
-//}
-
-// Preview
+// MARK: - Preview
 struct ReceiptDetailView_Previews: PreviewProvider {
     static var previews: some View {
         let sampleItems = [

@@ -181,7 +181,7 @@ final class VersionUpdateManager: ObservableObject, @unchecked Sendable {
             // Check if task was cancelled
             if Task.isCancelled { throw VersionCheckError.networkError }
             
-            // Print raw response for debugging
+            // Process response data
             if let responseString = String(data: data, encoding: .utf8) {
                 print("📦 Raw API Response: \(responseString)")
             }

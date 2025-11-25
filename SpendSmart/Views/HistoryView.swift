@@ -28,535 +28,60 @@ extension Color {
                 b = CGFloat((hexNumber & 0x0000ff00) >> 8) / 255
                 a = CGFloat(hexNumber & 0x000000ff) / 255
             }
-
             return UIColor(red: r, green: g, blue: b, alpha: a)
         }
     }
 }
 
-// Logo cache to prevent unnecessary API calls
+// Logo cache for storing fetched logos (thread-safe, avoids bridging Color in storage)
 class LogoCache: ObservableObject {
     static let shared = LogoCache()
-    @Published var logoCache: [String: (image: UIImage?, colors: [Color])] = [:]
-    @Published var failedAttempts: [String: Date] = [:] // Track failed attempts with timestamps
-    @Published var storeNameMappings: [String: String] = [:] // Map variations of store names to canonical names
-
-    // Time before retrying a failed logo fetch (24 hours)
-    let retryInterval: TimeInterval = 86400
-
-    // UserDefaults keys
-    private let logoCacheKey = "logo_cache_mappings"
-
-    init() {
-        loadCacheMappings()
+    
+    // Store images and colors separately to avoid complex tuple bridging and SwiftUI.Color storage
+    private var imageCache: [String: UIImage] = [:]
+    private var colorCache: [String: [UIColor]] = [:]
+    private let lock = NSLock()
+    
+    func getLogo(for key: String) -> (UIImage, [Color])? {
+        lock.lock(); defer { lock.unlock() }
+        guard let image = imageCache[key], let uiColors = colorCache[key] else { return nil }
+        // Convert back to SwiftUI.Color on read
+        let colors: [Color] = uiColors.map { Color($0) }
+        return (image, colors)
     }
-
-    // Save cache mappings to UserDefaults
-    func saveCacheMappings() {
-        let mappings = storeNameMappings
-        UserDefaults.standard.set(mappings, forKey: logoCacheKey)
+    
+    func setLogo(_ logo: (UIImage, [Color]), for key: String) {
+        lock.lock(); defer { lock.unlock() }
+        imageCache[key] = logo.0
+        // Convert SwiftUI.Color to UIColor for storage
+        let uiColors: [UIColor] = logo.1.map { $0.uiColor() }
+        colorCache[key] = uiColors
     }
-
-    // Load cache mappings from UserDefaults
-    func loadCacheMappings() {
-        if let mappings = UserDefaults.standard.dictionary(forKey: logoCacheKey) as? [String: String] {
-            storeNameMappings = mappings
-        }
-    }
-
-    // Normalize store name for consistent caching with enhanced cleaning
-    func normalizeStoreName(_ name: String) -> String {
-        let normalizedName = name.lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "'s", with: "s")  // Remove apostrophes in possessives
-            .replacingOccurrences(of: "&", with: "and") // Replace & with and
-            .replacingOccurrences(of: "#\\d+", with: "", options: .regularExpression) // Remove store numbers
-            .replacingOccurrences(of: "store", with: "") // Remove "store" word
-            .replacingOccurrences(of: "market", with: "") // Remove "market" word
-            .replacingOccurrences(of: "shop", with: "") // Remove "shop" word
-            .replacingOccurrences(of: "restaurant", with: "") // Remove "restaurant" word
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression) // Normalize whitespace
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Check if we have a mapping for this name variation
-        if let mappedName = storeNameMappings[normalizedName] {
-            return mappedName
-        }
-
-        return normalizedName
-    }
-
-    // Generate a consistent cache key for a receipt
-    func generateCacheKey(for receipt: Receipt) -> String {
-        // Prioritize logo_search_term if available, otherwise use store_name
-        let searchTerm = receipt.logo_search_term?.trimmingCharacters(in: .whitespacesAndNewlines) ?? receipt.store_name
-        return normalizeStoreName(searchTerm)
-    }
-
-    // Generate a consistent cache key for a store location
-    func generateCacheKey(for storeLocation: StoreLocation) -> String {
-        return normalizeStoreName(storeLocation.logoSearchTerm)
-    }
-
-    // Add a mapping between name variations
-    func addNameMapping(from variation: String, to canonical: String) {
-        let normalizedVariation = variation.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedCanonical = canonical.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-
-        storeNameMappings[normalizedVariation] = normalizedCanonical
-        saveCacheMappings()
-    }
-
-    func shouldAttemptFetch(for storeName: String) -> Bool {
-        let key = normalizeStoreName(storeName)
-        // If we have a failed attempt, check if enough time has passed to retry
-        if let failedDate = failedAttempts[key] {
-            return Date().timeIntervalSince(failedDate) > retryInterval
-        }
-        return true
-    }
-
-    // Clean up old cache entries and failed attempts
-    func cleanupCache() {
-        let now = Date()
-        let cleanupInterval: TimeInterval = 604800 // 7 days
-
-        // Remove old failed attempts
-        failedAttempts = failedAttempts.filter { _, date in
-            now.timeIntervalSince(date) < cleanupInterval
-        }
-
-        // Optionally remove very old cache entries (uncomment if needed)
-        // logoCache = logoCache.filter { key, _ in
-        //     // Keep entries that have been accessed recently or are for common stores
-        //     return true // For now, keep all cached logos
-        // }
-
-        print("🧹 Cache cleanup completed. Failed attempts: \(failedAttempts.count), Cached logos: \(logoCache.count)")
+    
+    func clearCache() {
+        lock.lock(); defer { lock.unlock() }
+        imageCache.removeAll()
+        colorCache.removeAll()
     }
 }
 
-// API client for Logo.dev
-class LogoService {
-    static let shared = LogoService()
-    private let publicKey = "pk_EB5BNaRARdeXj64ti60xGQ"
-
-    // Common store logos - hardcoded for reliability
-    private let knownStoreLogos: [String: (UIImage, [Color])] = [:]
-    // These would be populated with actual store logos in a real implementation
-    // For now, we'll rely on the API but with better fallbacks
-
-    // Store name corrections for common misspellings or variations
-    private let storeNameCorrections: [String: String] = [
-        "walmart": "walmart",
-        "wal-mart": "walmart",
-        "wal mart": "walmart",
-        "target": "target",
-        "costco": "costco",
-        "costco wholesale": "costco",
-        "amazon": "amazon",
-        "amazon.com": "amazon",
-        "starbucks": "starbucks",
-        "mcdonalds": "mcdonalds",
-        "mcdonald's": "mcdonalds",
-        "safeway": "safeway",
-        "kroger": "kroger",
-        "whole foods": "whole foods market",
-        "whole foods market": "whole foods market",
-        "trader joe's": "trader joes",
-        "trader joes": "trader joes",
-        "best buy": "best buy",
-        "home depot": "home depot",
-        "the home depot": "home depot",
-        "lowes": "lowes",
-        "lowe's": "lowes",
-        "cvs": "cvs",
-        "cvs pharmacy": "cvs",
-        "walgreens": "walgreens",
-        "subway": "subway",
-        "dunkin": "dunkin",
-        "dunkin donuts": "dunkin",
-        "7-eleven": "7-eleven",
-        "7 eleven": "7-eleven",
-        "shell": "shell",
-        "exxon": "exxon",
-        "bp": "bp",
-        "chevron": "chevron"
-    ]
-
-    // Default colors to use when no logo is available
-    private let defaultColors: [Color] = [.blue, Color(hex: "3B82F6"), Color(hex: "1D4ED8")]
-
-    // Store category colors
-    private let categoryColors: [String: [Color]] = [
-        "grocery": [.green, Color(hex: "22C55E"), Color(hex: "16A34A")],
-        "restaurant": [.red, Color(hex: "EF4444"), Color(hex: "DC2626")],
-        "retail": [.blue, Color(hex: "3B82F6"), Color(hex: "1D4ED8")],
-        "electronics": [.purple, Color(hex: "A855F7"), Color(hex: "7E22CE")],
-        "gas": [.orange, Color(hex: "F97316"), Color(hex: "EA580C")],
-        "travel": [.teal, Color(hex: "14B8A6"), Color(hex: "0D9488")],
-        "entertainment": [.pink, Color(hex: "EC4899"), Color(hex: "DB2777")]
-    ]
-
-    func fetchLogo(for storeName: String) async -> (UIImage?, [Color]) {
-        // Handle empty store names
-        guard !storeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return (nil, defaultColors)
-        }
-
-        let cache = LogoCache.shared
-        let normalizedName = cache.normalizeStoreName(storeName)
-
-        print("🔍 Fetching logo for: '\(storeName)' -> normalized: '\(normalizedName)'")
-
-        // Check for known store name corrections
-        if let correctedName = checkForKnownStore(normalizedName) {
-            print("✅ Found correction: '\(normalizedName)' -> '\(correctedName)'")
-            // Add mapping for future reference on main thread
-            await MainActor.run {
-                cache.addNameMapping(from: normalizedName, to: correctedName)
-            }
-
-            // Check if we have the corrected name in cache
-            if let cached = cache.logoCache[correctedName] {
-                print("📦 Using cached logo for corrected name: '\(correctedName)'")
-                return (cached.image, cached.colors)
-            }
-        }
-
-        // Check cache first
-        if let cached = cache.logoCache[normalizedName] {
-            return (cached.image, cached.colors)
-        }
-
-        // Check if we should attempt to fetch (not a recent failure)
-        if !cache.shouldAttemptFetch(for: normalizedName) {
-            print("Skipping logo fetch for \(storeName) due to recent failure")
-            return (nil, getCategoryColors(for: storeName))
-        }
-
-        // Try to fetch from API
-        return await fetchLogoFromAPI(storeName: storeName, normalizedName: normalizedName)
-    }
-
-    private func checkForKnownStore(_ normalizedName: String) -> String? {
-        // Check for exact matches first
-        if let correctedName = storeNameCorrections[normalizedName] {
-            return correctedName
-        }
-
-        // Check for partial matches
-        for (key, value) in storeNameCorrections {
-            if normalizedName.contains(key) {
-                return value
-            }
-        }
-
-        return nil
-    }
-
-    // Made public so it can be accessed from MapMarkerView
-    func getCategoryColors(for storeName: String) -> [Color] {
-        let lowercaseName = storeName.lowercased()
-
-        // Try to determine store category from name
-        if lowercaseName.contains("grocery") || lowercaseName.contains("market") ||
-           lowercaseName.contains("food") || lowercaseName.contains("supermarket") {
-            return categoryColors["grocery"] ?? defaultColors
-        } else if lowercaseName.contains("restaurant") || lowercaseName.contains("cafe") ||
-                  lowercaseName.contains("bar") || lowercaseName.contains("grill") {
-            return categoryColors["restaurant"] ?? defaultColors
-        } else if lowercaseName.contains("electronics") || lowercaseName.contains("tech") {
-            return categoryColors["electronics"] ?? defaultColors
-        } else if lowercaseName.contains("gas") || lowercaseName.contains("fuel") ||
-                  lowercaseName.contains("petrol") {
-            return categoryColors["gas"] ?? defaultColors
-        } else if lowercaseName.contains("travel") || lowercaseName.contains("hotel") ||
-                  lowercaseName.contains("air") {
-            return categoryColors["travel"] ?? defaultColors
-        } else if lowercaseName.contains("entertainment") || lowercaseName.contains("cinema") ||
-                  lowercaseName.contains("theater") {
-            return categoryColors["entertainment"] ?? defaultColors
-        }
-
-        return defaultColors
-    }
-
-    private func fetchLogoFromAPI(storeName: String, normalizedName: String) async -> (UIImage?, [Color]) {
-        let formattedName = storeName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? storeName
-        let urlString = "https://api.logo.dev/search?q=\(formattedName)"
-
-        guard let url = URL(string: urlString) else {
-            print("Invalid URL for logo fetch: \(urlString)")
-            cacheFailedAttempt(for: normalizedName)
-            return (nil, getCategoryColors(for: storeName))
-        }
-
-        var request = URLRequest(url: url)
-        request.addValue("Bearer \(secretKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 30 // Increased timeout to 30 seconds
-
-        // Implement retry logic
-        let maxRetries = 2 // Increased max retries
-        var retryCount = 0
-
-        while retryCount <= maxRetries {
-            do {
-                // Create a task with a timeout
-                let task = Task {
-                    try await URLSession.shared.data(for: request)
-                }
-
-                // Wait for the task with a timeout
-                let (data, response) = try await task.value
-
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    print("Error: Not an HTTP response")
-                    retryCount += 1
-                    if retryCount > maxRetries {
-                        cacheFailedAttempt(for: normalizedName)
-                        return (nil, defaultColors)
-                    }
-                    try await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
-                    continue
-                }
-
-                if httpResponse.statusCode != 200 {
-                    print("Error response: HTTP \(httpResponse.statusCode)")
-                    retryCount += 1
-                    if retryCount > maxRetries {
-                        cacheFailedAttempt(for: normalizedName)
-                        return (nil, defaultColors)
-                    }
-                    try await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
-                    continue
-                }
-
-                // Decode JSON as an array of dictionaries
-                do {
-                    let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-
-                    guard let array = jsonArray, !array.isEmpty,
-                          let firstResult = array.first,
-                          let logoUrlString = firstResult["logo_url"] as? String,
-                          let logoUrl = URL(string: logoUrlString) else {
-                        print("Failed to parse logo JSON response")
-                        cacheFailedAttempt(for: normalizedName)
-                        return (nil, defaultColors)
-                    }
-
-                    // Fetch the logo image with increased timeout
-                    let logoRequest = URLRequest(url: logoUrl, timeoutInterval: 20)
-
-                    do {
-                        let logoTask = Task {
-                            try await URLSession.shared.data(for: logoRequest)
-                        }
-
-                        let (imageData, _) = try await logoTask.value
-
-                        guard let image = UIImage(data: imageData) else {
-                            print("Failed to create image from data")
-                            cacheFailedAttempt(for: normalizedName)
-                            return (nil, defaultColors)
-                        }
-
-                        // Validate the logo before caching
-                        guard validateLogo(image: image, for: storeName) else {
-                            print("❌ Logo validation failed for: \(storeName)")
-                            cacheFailedAttempt(for: normalizedName)
-                            return (nil, getCategoryColors(for: storeName))
-                        }
-
-                        let colors = image.dominantColors(count: 3)
-                        let finalColors = colors.isEmpty ? defaultColors : colors
-
-                        print("✅ Successfully fetched and validated logo for: \(storeName)")
-
-                        // Cache the successful result on the main thread
-                        await MainActor.run {
-                            LogoCache.shared.logoCache[normalizedName] = (image, finalColors)
-                            // Remove from failed attempts if it was there
-                            LogoCache.shared.failedAttempts.removeValue(forKey: normalizedName)
-                        }
-
-                        return (image, finalColors)
-                    } catch {
-                        print("Error fetching logo image: \(error.localizedDescription)")
-                        retryCount += 1
-                        if retryCount > maxRetries {
-                            cacheFailedAttempt(for: normalizedName)
-                            return (nil, defaultColors)
-                        }
-                        try await Task.sleep(nanoseconds: 1_000_000_000)
-                        continue
-                    }
-                } catch {
-                    print("JSON parsing error: \(error)")
-                    retryCount += 1
-                    if retryCount > maxRetries {
-                        cacheFailedAttempt(for: normalizedName)
-                        return (nil, defaultColors)
-                    }
-                    continue
-                }
-            } catch {
-                print("Network error fetching logo: \(error)")
-                retryCount += 1
-                if retryCount > maxRetries {
-                    cacheFailedAttempt(for: normalizedName)
-                    return (nil, defaultColors)
-                }
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // Wait 1 second before retry
-            }
-        }
-
-        cacheFailedAttempt(for: normalizedName)
-        return (nil, defaultColors)
-    }
-
-    // Helper method to cache a failed attempt
-    private func cacheFailedAttempt(for storeKey: String) {
-        Task { @MainActor in
-            // Cache a nil image with category-specific colors
-            let colors = self.getCategoryColors(for: storeKey)
-            LogoCache.shared.logoCache[storeKey] = (nil, colors)
-            // Record the failure timestamp
-            LogoCache.shared.failedAttempts[storeKey] = Date()
-        }
-    }
-
-    // Validate if a logo is likely correct for the store
-    private func validateLogo(image: UIImage, for storeName: String) -> Bool {
-        // Basic validation - check if image is not too small or generic
-        let imageSize = image.size
-
-        // Reject very small images (likely low quality)
-        if imageSize.width < 32 || imageSize.height < 32 {
-            print("❌ Logo rejected: too small (\(imageSize.width)x\(imageSize.height))")
-            return false
-        }
-
-        // Reject very large images (likely not logos)
-        if imageSize.width > 1000 || imageSize.height > 1000 {
-            print("❌ Logo rejected: too large (\(imageSize.width)x\(imageSize.height))")
-            return false
-        }
-
-        // Additional validation could be added here (e.g., checking dominant colors, aspect ratio)
-        print("✅ Logo validated for: \(storeName)")
-        return true
-    }
-
-    // Enhanced logo fetching with better search terms
-    func fetchLogoForReceipt(_ receipt: Receipt) async -> (UIImage?, [Color]) {
-        let cache = LogoCache.shared
-        let cacheKey = cache.generateCacheKey(for: receipt)
-
-        print("🔍 Fetching logo for receipt: '\(receipt.store_name)' with key: '\(cacheKey)'")
-
-        // Check cache first
-        if let cached = cache.logoCache[cacheKey] {
-            print("📦 Using cached logo for: '\(cacheKey)'")
-            return (cached.image, cached.colors)
-        }
-
-        // Use logo_search_term if available, otherwise fall back to store_name
-        let searchTerm = receipt.logo_search_term?.trimmingCharacters(in: .whitespacesAndNewlines) ?? receipt.store_name
-        return await fetchLogo(for: searchTerm, cacheKey: cacheKey)
-    }
-
-    // Enhanced logo fetching for store locations
-    func fetchLogoForStoreLocation(_ storeLocation: StoreLocation) async -> (UIImage?, [Color]) {
-        let cache = LogoCache.shared
-        let cacheKey = cache.generateCacheKey(for: storeLocation)
-
-        print("🔍 Fetching logo for store location: '\(storeLocation.name)' with key: '\(cacheKey)'")
-
-        // Check cache first
-        if let cached = cache.logoCache[cacheKey] {
-            print("📦 Using cached logo for: '\(cacheKey)'")
-            return (cached.image, cached.colors)
-        }
-
-        return await fetchLogo(for: storeLocation.logoSearchTerm, cacheKey: cacheKey)
-    }
-
-    // Internal method with cache key parameter
-    private func fetchLogo(for searchTerm: String, cacheKey: String) async -> (UIImage?, [Color]) {
-        // Handle empty search terms
-        guard !searchTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return (nil, defaultColors)
-        }
-
-        let cache = LogoCache.shared
-
-        // Check for known store name corrections
-        if let correctedName = checkForKnownStore(cacheKey) {
-            print("✅ Found correction: '\(cacheKey)' -> '\(correctedName)'")
-            // Add mapping for future reference on main thread
-            await MainActor.run {
-                cache.addNameMapping(from: cacheKey, to: correctedName)
-            }
-
-            // Check if we have the corrected name in cache
-            if let cached = cache.logoCache[correctedName] {
-                print("📦 Using cached logo for corrected name: '\(correctedName)'")
-                return (cached.image, cached.colors)
-            }
-        }
-
-        // Only attempt to fetch if we haven't recently failed
-        if !cache.shouldAttemptFetch(for: cacheKey) {
-            print("⏳ Skipping fetch for '\(cacheKey)' - recent failure")
-            return (nil, getCategoryColors(for: searchTerm))
-        }
-
-        return await fetchLogoFromAPI(storeName: searchTerm, normalizedName: cacheKey)
-    }
-
-    // Generate a placeholder image for a store
-    func generatePlaceholderImage(for storeName: String, size: CGSize = CGSize(width: 100, height: 100)) -> UIImage {
-        let cache = LogoCache.shared
-        let _ = cache.normalizeStoreName(storeName)
-        let colors = getCategoryColors(for: storeName)
-
-        // Create a renderer with the specified size
-        let renderer = UIGraphicsImageRenderer(size: size)
-
-        return renderer.image { context in
-            // Fill background with the primary color
-            colors.first?.uiColor().setFill()
-            context.fill(CGRect(origin: .zero, size: size))
-
-            // Draw the first letter of the store name
-            let letter = String(storeName.prefix(1)).uppercased()
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: size.width * 0.5, weight: .bold),
-                .foregroundColor: UIColor.white
-            ]
-
-            let textSize = letter.size(withAttributes: attributes)
-            let textRect = CGRect(
-                x: (size.width - textSize.width) / 2,
-                y: (size.height - textSize.height) / 2,
-                width: textSize.width,
-                height: textSize.height
-            )
-
-            letter.draw(in: textRect, withAttributes: attributes)
-        }
-    }
-}
+// Logo service has been migrated to BrandfetchService.swift
+// Use BrandfetchService.shared for all logo fetching
+typealias LogoService = BrandfetchService
 
 struct HistoryView: View {
     @State private var receipts: [Receipt] = []
     @State private var isRefreshing = false
     @State private var selectedReceipt: Receipt? = nil
-    @StateObject private var logoCache = LogoCache.shared
     @Environment(\.colorScheme) private var colorScheme
     @State private var deletingReceiptId: String? = nil
     @EnvironmentObject var appState: AppState
+
+    // Multi-selection states
+    @State private var isSelectionMode = false
+    @State private var selectedReceiptIds: Set<String> = []
+    @State private var showDeleteConfirmation = false
+    @State private var isDeletingSelected = false
 
     // Search and Filter States
     @State private var searchText: String = ""
@@ -578,6 +103,19 @@ struct HistoryView: View {
         var id: Self { self }
     }
 
+    // Computed properties for selection mode
+    var selectedReceipts: [Receipt] {
+        filteredAndSortedReceipts.filter { selectedReceiptIds.contains($0.id.uuidString) }
+    }
+    
+    var isAllSelected: Bool {
+        !filteredAndSortedReceipts.isEmpty && selectedReceiptIds.count == filteredAndSortedReceipts.count
+    }
+    
+    var isPartiallySelected: Bool {
+        !selectedReceiptIds.isEmpty && selectedReceiptIds.count < filteredAndSortedReceipts.count
+    }
+
     func fetchReceipts() async {
         // Check if we're in guest mode (using local storage)
         print("🔄 [HistoryView] Starting fetchReceipts...")
@@ -586,18 +124,6 @@ struct HistoryView: View {
             // Get receipts from local storage
             let localReceipts = LocalStorageService.shared.getReceipts()
             print("💾 [HistoryView] Retrieved \(localReceipts.count) receipts from local storage")
-
-            // Pre-fetch logos for receipts using enhanced method
-            for receipt in localReceipts {
-                let cache = LogoCache.shared
-                let cacheKey = cache.generateCacheKey(for: receipt)
-                if !cache.logoCache.keys.contains(cacheKey) &&
-                   cache.shouldAttemptFetch(for: cacheKey) {
-                    Task {
-                        _ = await LogoService.shared.fetchLogoForReceipt(receipt)
-                    }
-                }
-            }
 
             withAnimation(.easeInOut(duration: 0.5)) {
                 receipts = localReceipts
@@ -615,18 +141,6 @@ struct HistoryView: View {
             print("📡 [HistoryView] Calling supabase.fetchReceipts...")
             let fetchedReceipts = try await supabase.fetchReceipts(page: 1, limit: 1000)
             print("✅ [HistoryView] Fetched \(fetchedReceipts.count) receipts from Supabase")
-
-            // Pre-fetch logos for receipts using enhanced method
-            for receipt in fetchedReceipts {
-                let cache = LogoCache.shared
-                let cacheKey = cache.generateCacheKey(for: receipt)
-                if !cache.logoCache.keys.contains(cacheKey) &&
-                   cache.shouldAttemptFetch(for: cacheKey) {
-                    Task {
-                        _ = await LogoService.shared.fetchLogoForReceipt(receipt)
-                    }
-                }
-            }
 
             withAnimation(.easeInOut(duration: 0.5)) {
                 receipts = fetchedReceipts
@@ -650,6 +164,87 @@ struct HistoryView: View {
             // If in guest mode, also delete from local storage
             if appState.useLocalStorage {
                 LocalStorageService.shared.deleteReceipt(withId: receipt.id)
+            }
+        }
+    }
+
+    // Handle multiple receipt deletion
+    func handleDeleteSelectedReceipts() {
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+            isDeletingSelected = true
+        }
+        
+        // Add delay to let animation play
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            Task {
+                // Delete selected receipts
+                for receipt in selectedReceipts {
+                    if appState.useLocalStorage {
+                        LocalStorageService.shared.deleteReceipt(withId: receipt.id)
+                    } else {
+                        do {
+                            try await supabase.deleteReceipt(id: receipt.id.uuidString)
+                        } catch {
+                            print("Error deleting receipt \(receipt.id): \(error)")
+                        }
+                    }
+                }
+                
+                await MainActor.run {
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                        // Remove from local array
+                        receipts.removeAll { selectedReceiptIds.contains($0.id.uuidString) }
+                        // Clear selection
+                        selectedReceiptIds.removeAll()
+                        isSelectionMode = false
+                        isDeletingSelected = false
+                    }
+                }
+            }
+        }
+    }
+
+    // Toggle selection mode
+    func toggleSelectionMode() {
+        // Haptic feedback
+        if appState.isHapticsEnabled {
+            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+            impactFeedback.impactOccurred()
+        }
+        
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+            isSelectionMode.toggle()
+            if !isSelectionMode {
+                selectedReceiptIds.removeAll()
+            }
+        }
+    }
+
+    // Toggle all receipts selection
+    func toggleAllSelection() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            if isAllSelected {
+                selectedReceiptIds.removeAll()
+            } else {
+                selectedReceiptIds = Set(filteredAndSortedReceipts.map { $0.id.uuidString })
+            }
+        }
+    }
+
+    // Toggle individual receipt selection
+    func toggleReceiptSelection(_ receipt: Receipt) {
+        // Haptic feedback
+        if appState.isHapticsEnabled {
+            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+            impactFeedback.impactOccurred()
+        }
+        
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            let receiptId = receipt.id.uuidString
+            if selectedReceiptIds.contains(receiptId) {
+                selectedReceiptIds.remove(receiptId)
+            } else {
+                selectedReceiptIds.insert(receiptId)
             }
         }
     }
@@ -707,6 +302,50 @@ struct HistoryView: View {
                 BackgroundGradientView()
 
                 VStack {
+                    // Selection Mode Header
+                    if isSelectionMode {
+                        HStack {
+                            Button(action: toggleSelectionMode) {
+                                Text("Cancel")
+                                    .font(.instrumentSans(size: 16, weight: .medium))
+                                    .foregroundColor(.blue)
+                            }
+                            
+                            Spacer()
+                            
+                            Button(action: toggleAllSelection) {
+                                Text(isAllSelected ? "Deselect All" : "Select All")
+                                    .font(.instrumentSans(size: 16, weight: .medium))
+                                    .foregroundColor(.blue)
+                            }
+                            
+                            Spacer()
+                            
+                            Text("\(selectedReceiptIds.count) selected")
+                                .font(.instrumentSans(size: 16, weight: .semibold))
+                                .foregroundColor(.primary)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                showDeleteConfirmation = true
+                            }) {
+                                Text("Delete")
+                                    .font(.instrumentSans(size: 16, weight: .medium))
+                                    .foregroundColor(selectedReceiptIds.isEmpty ? .gray : .red)
+                            }
+                            .disabled(selectedReceiptIds.isEmpty)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.secondary.opacity(0.1))
+                        )
+                        .padding(.horizontal)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
                     // Search Bar
                     HStack {
                         Image(systemName: "magnifyingglass")
@@ -749,6 +388,15 @@ struct HistoryView: View {
                         } label: {
                             Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
                         }
+
+                        // Selection Mode Toggle
+                        Button(action: toggleSelectionMode) {
+                            Image(systemName: isSelectionMode ? "checkmark.circle.fill" : "checkmark.circle")
+                                .font(.system(size: 20))
+                                .foregroundColor(isSelectionMode ? .blue : .secondary)
+                        }
+                        .scaleEffect(isSelectionMode ? 1.1 : 1.0)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelectionMode)
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -764,9 +412,10 @@ struct HistoryView: View {
                     }
 
                     ScrollView {
-                        VStack(spacing: 20) {
+                        LazyVStack(spacing: 20) {
                             if filteredAndSortedReceipts.isEmpty {
                                 EmptyStateView(message: searchText.isEmpty && !filterByDateRange ? "Your receipt history is empty." : "No receipts match your search and filter criteria.")
+                                    .padding(.top, 50)
                             } else {
                                 // Grid or List View (same as before, now using filteredAndSortedReceipts)
                                 if geometry.size.width > 500 {
@@ -776,12 +425,26 @@ struct HistoryView: View {
                                 }
                             }
                         }
-                        .padding()
+                        .padding(.horizontal)
+                        .padding(.top, 12)
+                        .padding(.bottom, 100) // Add bottom padding for safe area
                     }
                     .refreshable {
+                        // Haptic feedback for refresh
+                        if appState.isHapticsEnabled {
+                            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                            impactFeedback.impactOccurred()
+                        }
+                        
                         isRefreshing = true
                         await fetchReceipts()
                         isRefreshing = false
+                        
+                        // Success feedback
+                        if appState.isHapticsEnabled {
+                            let notification = UINotificationFeedbackGenerator()
+                            notification.notificationOccurred(.success)
+                        }
                     }
                 }
                 .padding(.top, 10) // Adjust top padding
@@ -795,10 +458,16 @@ struct HistoryView: View {
                 })
                 .environmentObject(appState)
             }
+            .alert("Delete Selected Receipts", isPresented: $showDeleteConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete \(selectedReceiptIds.count) Receipt\(selectedReceiptIds.count == 1 ? "" : "s")", role: .destructive) {
+                    handleDeleteSelectedReceipts()
+                }
+            } message: {
+                Text("Are you sure you want to delete \(selectedReceiptIds.count) receipt\(selectedReceiptIds.count == 1 ? "" : "s")? This action cannot be undone.")
+            }
             .onAppear {
                 Task {
-                    // Clean up old cache entries periodically
-                    LogoCache.shared.cleanupCache()
                     await fetchReceipts()
                 }
             }
@@ -808,16 +477,26 @@ struct HistoryView: View {
     private func receiptGridView(receipts: [Receipt]) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 300), spacing: 20)], spacing: 20) {
             ForEach(receipts) { receipt in
-                EnhancedReceiptCard(receipt: receipt, onDelete: handleDeleteReceipt)
-                    .onTapGesture {
+                EnhancedReceiptCard(
+                    receipt: receipt, 
+                    onDelete: handleDeleteReceipt,
+                    isSelectionMode: isSelectionMode,
+                    isSelected: selectedReceiptIds.contains(receipt.id.uuidString),
+                    onSelectionToggle: { toggleReceiptSelection(receipt) }
+                )
+                .onTapGesture {
+                    if isSelectionMode {
+                        toggleReceiptSelection(receipt)
+                    } else {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
                             selectedReceipt = receipt
                         }
                     }
-                    .transition(.asymmetric(
-                        insertion: .scale.combined(with: .opacity),
-                        removal: .scale.combined(with: .opacity)
-                    ))
+                }
+                .transition(.asymmetric(
+                    insertion: .scale.combined(with: .opacity),
+                    removal: .scale.combined(with: .opacity)
+                ))
             }
         }
         .animation(.spring(response: 0.6, dampingFraction: 0.7), value: receipts)
@@ -826,16 +505,26 @@ struct HistoryView: View {
     private func receiptListView(receipts: [Receipt]) -> some View {
         LazyVStack(spacing: 16) {
             ForEach(receipts) { receipt in
-                EnhancedReceiptCard(receipt: receipt, onDelete: handleDeleteReceipt)
-                    .onTapGesture {
+                EnhancedReceiptCard(
+                    receipt: receipt, 
+                    onDelete: handleDeleteReceipt,
+                    isSelectionMode: isSelectionMode,
+                    isSelected: selectedReceiptIds.contains(receipt.id.uuidString),
+                    onSelectionToggle: { toggleReceiptSelection(receipt) }
+                )
+                .onTapGesture {
+                    if isSelectionMode {
+                        toggleReceiptSelection(receipt)
+                    } else {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
                             selectedReceipt = receipt
                         }
                     }
-                    .transition(.asymmetric(
-                        insertion: .scale.combined(with: .opacity),
-                        removal: .scale.combined(with: .opacity).combined(with: .slide)
-                    ))
+                }
+                .transition(.asymmetric(
+                    insertion: .scale.combined(with: .opacity),
+                    removal: .scale.combined(with: .opacity).combined(with: .slide)
+                ))
             }
         }
         .animation(.spring(response: 0.6, dampingFraction: 0.7), value: receipts)
@@ -850,10 +539,7 @@ struct FilterView: View {
 
     var body: some View {
         VStack(spacing: 15) {
-            Toggle("Filter by Date", isOn: $filterByDateRange)
-                .padding(.horizontal)
 
-            if filterByDateRange {
                 VStack(alignment: .leading) {
                     Text("Select Date:")
                         .font(.subheadline)
@@ -885,7 +571,6 @@ struct FilterView: View {
                     }
                     .padding(.horizontal)
                 }
-            }
         }
         .padding()
         .background(Color.secondary.opacity(0.05))
@@ -893,7 +578,6 @@ struct FilterView: View {
         .padding(.horizontal)
     }
 }
-
 
 struct EnhancedReceiptCard: View {
     let receipt: Receipt
@@ -904,30 +588,70 @@ struct EnhancedReceiptCard: View {
     @State private var isHovered = false
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
+
     @StateObject private var currencyManager = CurrencyManager.shared
     // Callback for when deletion is complete
     var onDelete: ((Receipt) -> Void)?
-
+    // Selection mode properties
+    var isSelectionMode: Bool = false
+    var isSelected: Bool = false
+    var onSelectionToggle: (() -> Void)?
+    
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // Card background
-            RoundedRectangle(cornerRadius: 16)
-                .fill(backgroundGradient)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    primaryLogoColor.opacity(0.7),
-                                    primaryLogoColor.opacity(0.3)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
-                .shadow(color: shadowColor, radius: isHovered ? 12 : 6, x: 0, y: isHovered ? 5 : 3)
+        return ZStack {
+            // Main card content
+            ZStack(alignment: .topLeading) {
+                // Card background
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(backgroundGradient)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        primaryLogoColor.opacity(0.7),
+                                        primaryLogoColor.opacity(0.3)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: isSelected ? 2 : 1
+                            )
+                    )
+                    .shadow(color: shadowColor, radius: isHovered ? 12 : 6, x: 0, y: isHovered ? 5 : 3)
+                    .overlay(
+                        // Selection indicator
+                        Group {
+                            if isSelectionMode {
+                                HStack {
+                                    Spacer()
+                                    VStack {
+                                        Spacer()
+                                        ZStack {
+                                            Circle()
+                                                .fill(isSelected ? Color.blue : Color.clear)
+                                                .frame(width: 24, height: 24)
+                                                .overlay(
+                                                    Circle()
+                                                        .stroke(Color.blue, lineWidth: 2)
+                                                )
+                                                .scaleEffect(isSelected ? 1.1 : 1.0)
+                                            
+                                            if isSelected {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 12, weight: .bold))
+                                                    .foregroundColor(.white)
+                                                    .scaleEffect(isSelected ? 1.0 : 0.5)
+                                            }
+                                        }
+                                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+                                        Spacer()
+                                    }
+                                }
+                                .padding(.trailing, 12)
+                            }
+                        }
+                    )
 
             // Content
             VStack(alignment: .leading, spacing: 12) {
@@ -1009,18 +733,20 @@ struct EnhancedReceiptCard: View {
 
                     Spacer()
 
-                    // Delete button
-                    Button(action: {
-                        showDeleteConfirmation = true
-                    }) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 12))
-                            .foregroundColor(.red)
+                    // Delete button (only show when not in selection mode)
+                    if !isSelectionMode {
+                        Button(action: {
+                            showDeleteConfirmation = true
+                        }) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 12))
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .opacity(isHovered ? 1 : 0.3)
+                        .scaleEffect(isHovered ? 1.1 : 1)
+                        .animation(.easeInOut(duration: 0.2), value: isHovered)
                     }
-                    .buttonStyle(BorderlessButtonStyle())
-                    .opacity(isHovered ? 1 : 0.3)
-                    .scaleEffect(isHovered ? 1.1 : 1)
-                    .animation(.easeInOut(duration: 0.2), value: isHovered)
                 }
                 .padding(.top, 2)
 
@@ -1176,10 +902,14 @@ struct EnhancedReceiptCard: View {
             .padding(16)
             .opacity(isDeleting ? 0 : 1) // Fade out when deleting
         }
+        }
         .frame(height: 200)
         .scaleEffect(isDeleting ? 0.8 : (isHovered ? 1.02 : 1))
         .opacity(isLoaded ? (isDeleting ? 0 : 1) : 0)
         .offset(y: isLoaded ? (isDeleting ? 50 : 0) : 20)
+
+        // Let parent handle taps for opening details or selection
+        .contentShape(RoundedRectangle(cornerRadius: 16))
         .onAppear {
             loadLogo()
             withAnimation(.spring(response: 0.6, dampingFraction: 0.7)
@@ -1187,11 +917,7 @@ struct EnhancedReceiptCard: View {
                 isLoaded = true
             }
         }
-        .onHover { hovering in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                isHovered = hovering
-            }
-        }
+        
         .alert("Delete Receipt", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
@@ -1205,6 +931,12 @@ struct EnhancedReceiptCard: View {
     @EnvironmentObject var appState: AppState
 
     private func deleteReceipt() {
+        // Haptic feedback
+        if appState.isHapticsEnabled {
+            let impactFeedback = UIImpactFeedbackGenerator(style: .heavy)
+            impactFeedback.impactOccurred()
+        }
+        
         withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
             isDeleting = true
         }
@@ -1246,14 +978,26 @@ struct EnhancedReceiptCard: View {
     }
 
     private var primaryLogoColor: Color {
-        logoColors.first ?? (colorScheme == .dark ? .white : .black)
+        if appState.usePlainReceiptColors { return Color.blue }
+        return logoColors.first ?? (colorScheme == .dark ? .white : .black)
     }
 
     private var secondaryLogoColor: Color {
-        logoColors.count > 1 ? logoColors[1] : primaryLogoColor.opacity(0.7)
+        if appState.usePlainReceiptColors { return Color.blue.opacity(0.8) }
+        return logoColors.count > 1 ? logoColors[1] : primaryLogoColor.opacity(0.7)
     }
 
-    private var backgroundGradient: some ShapeStyle {
+    private var backgroundGradient: LinearGradient {
+        if appState.usePlainReceiptColors {
+            return LinearGradient(
+                colors: [
+                    colorScheme == .dark ? Color.black.opacity(0.8) : Color.white,
+                    colorScheme == .dark ? Color.black.opacity(0.6) : Color.white.opacity(0.92)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
         if colorScheme == .dark {
             return LinearGradient(
                 colors: [
@@ -1294,12 +1038,17 @@ struct EnhancedReceiptCard: View {
     }
 
     private func loadLogo() {
-        // Use the enhanced logo fetching method
-        Task {
-            let (image, colors) = await LogoService.shared.fetchLogoForReceipt(receipt)
-            await MainActor.run {
-                logoImage = image
-                logoColors = colors
+        // Use the enhanced logo fetching method unless plain colors are enabled
+        if appState.usePlainReceiptColors {
+            logoImage = nil
+            logoColors = [Color.blue, Color.blue.opacity(0.8)]
+        } else {
+            Task {
+                let (image, colors) = await LogoService.shared.fetchLogoForReceipt(receipt)
+                await MainActor.run {
+                    logoImage = image
+                    logoColors = colors
+                }
             }
         }
     }
@@ -1312,169 +1061,9 @@ struct EnhancedReceiptCard: View {
     }
 }
 
-struct IconDetailView: View {
-    let icon: String
-    let title: String
-    let detail: String
-    let color: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .foregroundColor(color)
-
-                Text(title)
-                    .font(.instrumentSans(size: 12))
-                    .foregroundColor(.secondary)
-            }
-
-            Text(detail)
-                .font(.instrumentSans(size: 14, weight: .semibold))
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-struct ItemCard: View {
-    let item: ReceiptItem
-    let logoColors: [Color]
-    let index: Int
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var isHovered = false
-    @StateObject private var currencyManager = CurrencyManager.shared
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(backgroundColor)
-                        .frame(width: 40, height: 40)
-
-                    if item.isDiscount {
-                        // Special icon for discounts
-                        Image(systemName: "tag.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(Color.green)
-                    } else if let iconName = categoryIcon(for: item.category) {
-                        Image(systemName: iconName)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(getLogoColor(at: index % logoColors.count))
-                    } else {
-                        Text(String(item.category.prefix(1)).uppercased())
-                            .font(.spaceGrotesk(size: 18, weight: .bold))
-                            .foregroundColor(getLogoColor(at: index % logoColors.count))
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.name)
-                        .font(.instrumentSans(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                    if let discountDescription = item.discountDescription {
-                        Text(discountDescription)
-                            .font(.instrumentSans(size: 14, weight: .medium))
-                            .foregroundColor(item.isDiscount ? .green : .secondary)
-                    } else {
-                        Text(item.category)
-                            .font(.instrumentSans(size: 14))
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                Spacer()
-
-                // Price display with original price if available
-                VStack(alignment: .trailing, spacing: 2) {
-                    // Only show strikethrough for actual discounts with originalPrice > 0
-                    if let originalPrice = item.originalPrice, originalPrice > 0, originalPrice != item.price {
-                        Text(currencyManager.formatAmount(originalPrice, currencyCode: currencyManager.preferredCurrency))
-                            .font(.spaceGrotesk(size: 14))
-                            .foregroundColor(.secondary)
-                            .strikethrough(true, color: .green.opacity(0.7))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-
-                    Text(currencyManager.formatAmount(item.price, currencyCode: currencyManager.preferredCurrency))
-                        .font(.spaceGrotesk(size: 18, weight: .bold))
-                        .foregroundColor(priceColor)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7) // Shrink text to fit if needed
-                }
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.black.opacity(0.2) : Color.white.opacity(0.7))
-                .shadow(
-                    color: getLogoColor(at: index % logoColors.count).opacity(isHovered ? 0.15 : 0.05),
-                    radius: isHovered ? 8 : 4,
-                    x: 0,
-                    y: isHovered ? 4 : 2
-                )
-        )
-        .scaleEffect(isHovered ? 1.02 : 1)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-    }
-
-    private var backgroundColor: Color {
-        colorScheme == .dark
-        ? getLogoColor(at: index % logoColors.count).opacity(0.15)
-        : getLogoColor(at: index % logoColors.count).opacity(0.1)
-    }
-
-    private func getLogoColor(at index: Int) -> Color {
-        guard index < logoColors.count, !logoColors.isEmpty else {
-            return colorScheme == .dark ? .white : .black
-        }
-        return logoColors[index]
-    }
-
-    private var priceColor: Color {
-        if item.isDiscount {
-            return .green
-        } else if item.price == 0 {
-            return .green // Free items
-        } else if let originalPrice = item.originalPrice, originalPrice > item.price {
-            return .green // Discounted items
-        } else {
-            return getLogoColor(at: index % logoColors.count)
-        }
-    }
-
-    private func categoryIcon(for category: String) -> String? {
-        let normalized = category.lowercased()
-        if normalized.contains("food") || normalized.contains("grocery") {
-            return "cart.fill"
-        } else if normalized.contains("electronics") || normalized.contains("tech") {
-            return "laptopcomputer"
-        } else if normalized.contains("clothing") || normalized.contains("apparel") {
-            return "tshirt.fill"
-        } else if normalized.contains("restaurant") || normalized.contains("dining") {
-            return "fork.knife"
-        } else if normalized.contains("transport") || normalized.contains("travel") {
-            return "car.fill"
-        } else if normalized.contains("entertainment") {
-            return "film.fill"
-        } else if normalized.contains("health") || normalized.contains("medical") {
-            return "cross.fill"
-        } else {
-            return nil
-        }
-    }
-}
-
 // Preview
 #Preview {
     NavigationView {
         HistoryView()
     }
-}
+} 

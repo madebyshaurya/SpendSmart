@@ -15,7 +15,7 @@ class SupabaseManager {
     static let shared = SupabaseManager()
 
     // Direct Supabase client for anon key operations
-    private let supabaseClient: SupabaseClient
+    let supabaseClient: SupabaseClient
 
     // Backend API service for operations requiring service role key
     private let backendAPI = BackendAPIService.shared
@@ -190,6 +190,13 @@ class SupabaseManager {
             if let nsError = error as NSError? {
                 print("❌ [SupabaseManager] Error domain: \(nsError.domain), code: \(nsError.code)")
                 print("❌ [SupabaseManager] Error userInfo: \(nsError.userInfo)")
+                
+                // Handle network cancellation errors gracefully
+                if nsError.domain == "NSURLErrorDomain" && nsError.code == -999 {
+                    // Don't log this as it's normal behavior during refresh
+                    // Throw a specific error for cancelled requests so the caller can handle it appropriately
+                    throw NSError(domain: "SupabaseManager", code: -999, userInfo: [NSLocalizedDescriptionKey: "Network request was cancelled"])
+                }
             }
             throw error
         }
@@ -197,6 +204,60 @@ class SupabaseManager {
 
     /// Create a new receipt
     func createReceipt(_ receipt: Receipt) async throws -> Receipt {
+        print("📝 [SupabaseManager] Creating receipt for user: \(receipt.user_id)")
+        print("📝 [SupabaseManager] Receipt details - Store: \(receipt.store_name), Amount: \(receipt.total_amount), Items: \(receipt.items.count)")
+
+        // MARK: - Receipt Limit Check
+        // Check if user can add receipt (premium OR under weekly limit)
+        print("🔍 [SupabaseManager] Checking receipt limit...")
+        do {
+            let (canAdd, usage) = try await BackendAPIService.shared.canAddReceipt()
+
+            if !canAdd {
+                print("🚫 [SupabaseManager] Receipt limit reached: \(usage.receiptsThisWeek)/5")
+                throw ReceiptLimitError.limitReached(usage: usage)
+            }
+
+            print("✅ [SupabaseManager] Receipt limit check passed: \(usage.receiptsThisWeek)/5")
+        } catch let error as ReceiptLimitError {
+            // Re-throw receipt limit errors
+            throw error
+        } catch {
+            print("⚠️ [SupabaseManager] Failed to check receipt limit, proceeding anyway: \(error.localizedDescription)")
+            // On network error, allow receipt creation (graceful degradation)
+        }
+
+        // Ensure we have a valid user session
+        let currentUser = await getCurrentUser()
+        guard let currentUser = currentUser else {
+            print("❌ [SupabaseManager] No current user found for receipt creation")
+            throw NSError(domain: "SupabaseManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+        
+        // Verify the receipt user_id matches the current user
+        if receipt.user_id.uuidString != currentUser.id {
+            print("⚠️ [SupabaseManager] Receipt user_id (\(receipt.user_id)) doesn't match current user (\(currentUser.id))")
+            // Create a new receipt with the correct user_id
+            var correctedReceipt = receipt
+            correctedReceipt.user_id = UUID(uuidString: currentUser.id) ?? receipt.user_id
+            print("✅ [SupabaseManager] Corrected receipt user_id to: \(correctedReceipt.user_id)")
+            
+            let response: Receipt = try await supabaseClient
+                .from("receipts")
+                .insert(correctedReceipt)
+                .select()
+                .single()
+                .execute()
+                .value
+
+            print("✅ [SupabaseManager] Receipt created successfully with ID: \(response.id)")
+
+            // Increment receipt count after successful save
+            await incrementReceiptCountAfterSave()
+
+            return response
+        }
+
         let response: Receipt = try await supabaseClient
             .from("receipts")
             .insert(receipt)
@@ -205,11 +266,58 @@ class SupabaseManager {
             .execute()
             .value
 
+        print("✅ [SupabaseManager] Receipt created successfully with ID: \(response.id)")
+
+        // Increment receipt count after successful save
+        await incrementReceiptCountAfterSave()
+
         return response
+    }
+
+    /// Helper method to increment receipt count after successful save
+    private func incrementReceiptCountAfterSave() async {
+        do {
+            _ = try await BackendAPIService.shared.incrementReceiptCount()
+            print("📈 [SupabaseManager] Receipt count incremented")
+        } catch {
+            print("⚠️ [SupabaseManager] Failed to increment receipt count: \(error.localizedDescription)")
+            // Don't throw error - receipt is already saved
+        }
     }
 
     /// Update an existing receipt
     func updateReceipt(_ receipt: Receipt) async throws -> Receipt {
+        print("📝 [SupabaseManager] Updating receipt with ID: \(receipt.id)")
+        print("📝 [SupabaseManager] Receipt user_id: \(receipt.user_id)")
+        
+        // Ensure we have a valid user session
+        let currentUser = await getCurrentUser()
+        guard let currentUser = currentUser else {
+            print("❌ [SupabaseManager] No current user found for receipt update")
+            throw NSError(domain: "SupabaseManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+        
+        // Verify the receipt user_id matches the current user
+        if receipt.user_id.uuidString != currentUser.id {
+            print("⚠️ [SupabaseManager] Receipt user_id (\(receipt.user_id)) doesn't match current user (\(currentUser.id))")
+            // Create a corrected receipt with the current user's ID
+            var correctedReceipt = receipt
+            correctedReceipt.user_id = UUID(uuidString: currentUser.id) ?? receipt.user_id
+            print("✅ [SupabaseManager] Corrected receipt user_id to: \(correctedReceipt.user_id)")
+            
+            let response: Receipt = try await supabaseClient
+                .from("receipts")
+                .update(correctedReceipt)
+                .eq("id", value: receipt.id.uuidString)
+                .select()
+                .single()
+                .execute()
+                .value
+            
+            print("✅ [SupabaseManager] Receipt updated successfully with ID: \(response.id)")
+            return response
+        }
+        
         let response: Receipt = try await supabaseClient
             .from("receipts")
             .update(receipt)
@@ -219,6 +327,7 @@ class SupabaseManager {
             .execute()
             .value
 
+        print("✅ [SupabaseManager] Receipt updated successfully with ID: \(response.id)")
         return response
     }
 

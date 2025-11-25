@@ -73,7 +73,7 @@ struct SpendingInsightsView: View {
             ))
         }
 
-        // Find largest category
+        // Find largest category (excluding subscriptions which are handled separately)
         let categoryTotals = receipts.flatMap { $0.items }.reduce(into: [String: Double]()) { totals, item in
             if !item.isDiscount {
                 totals[item.category, default: 0] += item.price

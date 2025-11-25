@@ -15,6 +15,7 @@ class LocalStorageService {
     
     // Save receipts to UserDefaults
     func saveReceipts(_ receipts: [Receipt]) {
+        print("💾 [LocalStorageService] Saving \(receipts.count) receipts to local storage")
         do {
             let encoder = JSONEncoder()
             let dateFormatter = DateFormatter()
@@ -25,15 +26,17 @@ class LocalStorageService {
             
             let data = try encoder.encode(receipts)
             UserDefaults.standard.set(data, forKey: receiptsKey)
-            print("✅ Receipts saved to local storage successfully!")
+            print("✅ [LocalStorageService] Successfully saved \(receipts.count) receipts to local storage")
         } catch {
-            print("❌ Error saving receipts to local storage: \(error.localizedDescription)")
+            print("❌ [LocalStorageService] Error saving receipts to local storage: \(error.localizedDescription)")
         }
     }
     
     // Get all receipts from UserDefaults
     func getReceipts() -> [Receipt] {
+        print("🔄 [LocalStorageService] Loading receipts from local storage")
         guard let data = UserDefaults.standard.data(forKey: receiptsKey) else {
+            print("📭 [LocalStorageService] No stored receipt data found")
             return []
         }
         
@@ -56,15 +59,19 @@ class LocalStorageService {
             }
             
             let receipts = try decoder.decode([Receipt].self, from: data)
+            print("✅ [LocalStorageService] Successfully loaded \(receipts.count) receipts from local storage")
             return receipts
         } catch {
-            print("❌ Error retrieving receipts from local storage: \(error.localizedDescription)")
+            print("❌ [LocalStorageService] Error retrieving receipts from local storage: \(error.localizedDescription)")
             return []
         }
     }
     
     // Add a new receipt
     func addReceipt(_ receipt: Receipt) {
+        #if DEBUG
+        print("➕ [LocalStorageService] Adding new receipt: [STORE_NAME] - $[AMOUNT]")
+        #endif
         var receipts = getReceipts()
         receipts.append(receipt)
         saveReceipts(receipts)
@@ -72,8 +79,14 @@ class LocalStorageService {
     
     // Delete a receipt
     func deleteReceipt(withId id: UUID) {
+        #if DEBUG
+        print("🗑️ [LocalStorageService] Deleting receipt with ID: [REDACTED]")
+        #endif
         var receipts = getReceipts()
+        let originalCount = receipts.count
         receipts.removeAll { $0.id == id }
+        let deletedCount = originalCount - receipts.count
+        print("✅ [LocalStorageService] Deleted \(deletedCount) receipt(s)")
         saveReceipts(receipts)
     }
     

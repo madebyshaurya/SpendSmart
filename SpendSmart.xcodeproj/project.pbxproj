@@ -9,11 +9,13 @@
 /* Begin PBXBuildFile section */
 		5060B9062D827079000CCB51 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 5060B9052D827079000CCB51 /* Supabase */; };
 		50A4FA3C2D909F7200C89441 /* GoogleGenerativeAI in Frameworks */ = {isa = PBXBuildFile; productRef = 50A4FA3B2D909F7200C89441 /* GoogleGenerativeAI */; };
+		50AF24232E5D331D00E60B56 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 50AF24222E5D331D00E60B56 /* Lottie */; };
 		50B538DF2DAC2DBC00A2999A /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538DE2DAC2DBC00A2999A /* Auth */; };
 		50B538E12DAC2DBC00A2999A /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E02DAC2DBC00A2999A /* Functions */; };
 		50B538E32DAC2DBC00A2999A /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E22DAC2DBC00A2999A /* PostgREST */; };
 		50B538E52DAC2DBC00A2999A /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E42DAC2DBC00A2999A /* Realtime */; };
 		50B538E72DAC2DBC00A2999A /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E62DAC2DBC00A2999A /* Storage */; };
+		50D4C6422E54F415007D5131 /* Shimmer in Frameworks */ = {isa = PBXBuildFile; productRef = 50D4C6412E54F415007D5131 /* Shimmer */; };
 		50E064712DEE4183009E889E /* OpenAI in Frameworks */ = {isa = PBXBuildFile; productRef = 50E064702DEE4183009E889E /* OpenAI */; };
 /* End PBXBuildFile section */
 
@@ -50,7 +52,9 @@
 				5060B9062D827079000CCB51 /* Supabase in Frameworks */,
 				50A4FA3C2D909F7200C89441 /* GoogleGenerativeAI in Frameworks */,
 				50E064712DEE4183009E889E /* OpenAI in Frameworks */,
+				50D4C6422E54F415007D5131 /* Shimmer in Frameworks */,
 				50B538E72DAC2DBC00A2999A /* Storage in Frameworks */,
+				50AF24232E5D331D00E60B56 /* Lottie in Frameworks */,
 				50B538E12DAC2DBC00A2999A /* Functions in Frameworks */,
 				50B538E52DAC2DBC00A2999A /* Realtime in Frameworks */,
 				50B538DF2DAC2DBC00A2999A /* Auth in Frameworks */,
@@ -105,6 +109,8 @@
 				50B538E42DAC2DBC00A2999A /* Realtime */,
 				50B538E62DAC2DBC00A2999A /* Storage */,
 				50E064702DEE4183009E889E /* OpenAI */,
+				50D4C6412E54F415007D5131 /* Shimmer */,
+				50AF24222E5D331D00E60B56 /* Lottie */,
 			);
 			productName = SpendSmart;
 			productReference = 507C569A2D8254DC00CA1FD5 /* SpendSmart.app */;
@@ -118,7 +124,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1620;
-				LastUpgradeCheck = 1630;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					507C56992D8254DC00CA1FD5 = {
 						CreatedOnToolsVersion = 16.2;
@@ -138,6 +144,8 @@
 				5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 				50A4FA3A2D909F7200C89441 /* XCRemoteSwiftPackageReference "generative-ai-swift" */,
 				50E0646F2DEE4183009E889E /* XCRemoteSwiftPackageReference "OpenAI" */,
+				50D4C6402E54F415007D5131 /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */,
+				50AF24212E5D331D00E60B56 /* XCRemoteSwiftPackageReference "lottie-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 507C569B2D8254DC00CA1FD5 /* Products */;
@@ -229,6 +237,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -286,6 +295,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -306,7 +316,7 @@
 				INFOPLIST_FILE = SpendSmart/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SpendSmart;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.shopping";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSCameraUsageDescription = "SpendSmart needs camera access to scan your receipts and automatically extract information.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SpendSmart needs access to your photo library to select receipt images for processing.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -319,7 +329,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartAppStore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -345,7 +355,7 @@
 				INFOPLIST_FILE = SpendSmart/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SpendSmart;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.shopping";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSCameraUsageDescription = "SpendSmart needs camera access to scan your receipts and automatically extract information.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SpendSmart needs access to your photo library to select receipt images for processing.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -358,7 +368,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shauryag.SpendSmartAppStore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -409,6 +419,22 @@
 				minimumVersion = 0.5.6;
 			};
 		};
+		50AF24212E5D331D00E60B56 /* XCRemoteSwiftPackageReference "lottie-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/airbnb/lottie-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.5.2;
+			};
+		};
+		50D4C6402E54F415007D5131 /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/markiv/SwiftUI-Shimmer";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.5.1;
+			};
+		};
 		50E0646F2DEE4183009E889E /* XCRemoteSwiftPackageReference "OpenAI" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/MacPaw/OpenAI.git";
@@ -429,6 +455,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 50A4FA3A2D909F7200C89441 /* XCRemoteSwiftPackageReference "generative-ai-swift" */;
 			productName = GoogleGenerativeAI;
+		};
+		50AF24222E5D331D00E60B56 /* Lottie */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 50AF24212E5D331D00E60B56 /* XCRemoteSwiftPackageReference "lottie-ios" */;
+			productName = Lottie;
 		};
 		50B538DE2DAC2DBC00A2999A /* Auth */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -454,6 +485,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Storage;
+		};
+		50D4C6412E54F415007D5131 /* Shimmer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 50D4C6402E54F415007D5131 /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */;
+			productName = Shimmer;
 		};
 		50E064702DEE4183009E889E /* OpenAI */ = {
 			isa = XCSwiftPackageProductDependency;

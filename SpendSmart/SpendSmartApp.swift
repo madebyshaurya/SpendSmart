@@ -11,6 +11,7 @@ import SwiftUI
 struct SpendSmartApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var versionUpdateManager = VersionUpdateManager.shared
+    @StateObject private var subscriptionService = SubscriptionService.shared
 
     // Add scene phase to track app state
     @Environment(\.scenePhase) private var scenePhase
@@ -33,24 +34,31 @@ struct SpendSmartApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .onAppear {
+                    Task { await SubscriptionService.shared.requestNotificationPermission() }
+                }
                 .onChange(of: scenePhase) { oldPhase, newPhase in
                     switch newPhase {
                     case .active:
                         // App became active (launch or from background)
-                        print("📱 App became active")
+                        print("🟢 [SpendSmartApp] App became active")
+                        print("👤 [SpendSmartApp] User logged in: \(appState.isLoggedIn)")
+                        print("💾 [SpendSmartApp] Using local storage: \(appState.useLocalStorage)")
                         // Only check for updates if we haven't already in this session
                         // or if we're coming back from background after a significant time
                         if !hasCheckedForUpdates || shouldCheckForUpdates() {
+                            print("🔄 [SpendSmartApp] Checking for version updates")
                             Task {
                                 await checkForVersionUpdate()
                             }
                         }
                     case .background:
                         // App went to background
-                        print("📱 App went to background")
+                        print("🔴 [SpendSmartApp] App went to background")
+                        UserDefaults.standard.set(Date(), forKey: "lastActiveDate")
                     case .inactive:
                         // App became inactive
-                        print("📱 App became inactive")
+                        print("🟡 [SpendSmartApp] App became inactive")
                     @unknown default:
                         break
                     }

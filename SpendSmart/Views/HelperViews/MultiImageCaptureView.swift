@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+import VisionKit
 
 // Camera components
 
@@ -190,6 +191,17 @@ struct MultiImageCaptureView: View {
     @State private var showingConfirmation = false
     @State private var animateCapture = false
     @State private var animateFlash = false
+    
+    // Document scanner integration
+    @State private var showingDocumentScanner = false
+    @State private var scannerImages: [UIImage] = []
+    
+    // Enhanced preview system
+    @State private var showingEnhancedPreview = false
+    @State private var previewOriginalImage: UIImage?
+    @State private var previewProcessedImage: UIImage?
+    @State private var previewResult: ImageProcessingResult?
+    @State private var documentScanMode = false
 
     // Animation properties
     @State private var captureScale: CGFloat = 1.0
@@ -210,31 +222,10 @@ struct MultiImageCaptureView: View {
 
             // UI overlay
             VStack {
-                // Top bar with controls
-                HStack {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(12)
-                            .background(Circle().fill(Color.black.opacity(0.5)))
-                    }
-
-                    Spacer()
-
-                    Button {
-                        isFlashOn.toggle()
-                    } label: {
-                        Image(systemName: isFlashOn ? "bolt.fill" : "bolt.slash")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(12)
-                            .background(Circle().fill(Color.black.opacity(0.5)))
-                    }
-                }
-                .padding()
+                controlBar
+                    .padding(16)
+                    .glassCompatRect(cornerRadius: 24, interactive: true)
+                    .padding()
 
                 Spacer()
 
@@ -270,11 +261,8 @@ struct MultiImageCaptureView: View {
                             .padding(.horizontal)
                         }
                         .frame(height: 90)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.black.opacity(0.5))
-                                .padding(.horizontal, 8)
-                        )
+                        .glassCompatRect(cornerRadius: 12)
+                        .padding(.horizontal, 8)
                     }
 
                     HStack(spacing: 50) {
@@ -287,16 +275,6 @@ struct MultiImageCaptureView: View {
                                 .foregroundColor(.white)
                                 .padding(.vertical, 12)
                                 .padding(.horizontal, 24)
-                                .background(
-                                    Capsule()
-                                        .fill(
-                                            LinearGradient(
-                                                gradient: Gradient(colors: [Color(hex: "4CAF50"), Color(hex: "2E7D32")]),
-                                                startPoint: .top,
-                                                endPoint: .bottom
-                                            )
-                                        )
-                                )
                                 .opacity(capturedImages.isEmpty ? 0.5 : 1)
                         }
                         .disabled(capturedImages.isEmpty)
@@ -354,11 +332,8 @@ struct MultiImageCaptureView: View {
                                 .foregroundColor(.white)
                                 .padding(.vertical, 10)
                                 .padding(.horizontal, 20)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.red.opacity(0.8))
-                                )
                             }
+                            .glassCompatCapsule(tint: .red, interactive: true)
 
                             Button {
                                 showPreview = false
@@ -371,11 +346,8 @@ struct MultiImageCaptureView: View {
                                 .foregroundColor(.white)
                                 .padding(.vertical, 10)
                                 .padding(.horizontal, 20)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.green.opacity(0.8))
-                                )
                             }
+                            .glassCompatCapsule(tint: .green, interactive: true)
                         }
                         .padding(.bottom, 30)
                     }
@@ -415,12 +387,8 @@ struct MultiImageCaptureView: View {
                                 .foregroundColor(.white)
                                 .padding(.vertical, 10)
                                 .padding(.horizontal, 16)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.white.opacity(0.15))
-                                        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
-                                )
                             }
+                            .glassCompatCapsule(interactive: true)
 
                             Button {
                                 dismiss()
@@ -434,12 +402,8 @@ struct MultiImageCaptureView: View {
                                 .foregroundColor(.white)
                                 .padding(.vertical, 10)
                                 .padding(.horizontal, 16)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.blue.opacity(0.8))
-                                        .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
-                                )
                             }
+                            .glassCompatCapsule(tint: .blue, interactive: true)
                         }
                         .padding(.bottom, 8)
                     }
@@ -464,6 +428,124 @@ struct MultiImageCaptureView: View {
         }
         .onDisappear {
             cameraController.stopSession()
+        }
+        .sheet(isPresented: $showingDocumentScanner) {
+            DocumentScannerView(
+                scannedImages: $scannerImages,
+                onCompletion: { images in
+                    handleScannedImages(images)
+                },
+                onError: { error in
+                    print("Document scanning error: \(error.localizedDescription)")
+                }
+            )
+        }
+        .sheet(isPresented: $showingEnhancedPreview) {
+            if let originalImage = previewOriginalImage,
+               let processedImage = previewProcessedImage,
+               let result = previewResult {
+                EnhancedReceiptPreviewView(
+                    originalImage: originalImage,
+                    processedImage: processedImage,
+                    processingResult: result,
+                    onAccept: { finalImage in
+                        withAnimation {
+                            capturedImages.append(finalImage)
+                            thumbnailOffset = 100
+                        }
+                        resetPreviewState()
+                    },
+                    onReject: {
+                        resetPreviewState()
+                    }
+                )
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var controlBar: some View {
+        HStack {
+            let dismissLabel = {
+                Image(systemName: "xmark")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(12)
+            }
+            
+            Button(action: { dismiss() }, label: dismissLabel)
+                .glassCompatCircle(interactive: true)
+
+            Spacer()
+            
+            if DocumentScannerAvailability.isAvailable {
+                let scannerLabel = {
+                    Image(systemName: "doc.text.viewfinder")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(12)
+                }
+                
+                Button(action: { showingDocumentScanner = true }, label: scannerLabel)
+                    .glassCompatCircle(tint: .blue, interactive: true)
+            }
+
+            let flashLabel = {
+                Image(systemName: isFlashOn ? "bolt.fill" : "bolt.slash")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(12)
+            }
+
+            Button(action: { isFlashOn.toggle() }, label: flashLabel)
+                .glassCompatCircle(interactive: true)
+        }
+    }
+    
+    // MARK: - Document Scanner Methods
+    
+    private func resetPreviewState() {
+        previewOriginalImage = nil
+        previewProcessedImage = nil
+        previewResult = nil
+        showingEnhancedPreview = false
+    }
+    
+    private func handleScannedImages(_ images: [UIImage]) {
+        Task {
+            // Process through multi-part receipt processor first
+            let multiPartResult = await MultiPartReceiptProcessor.shared.processMultiPartReceipt(images)
+            
+            if multiPartResult.processedImages.count == 1,
+               let singleImage = multiPartResult.processedImages.first,
+               let originalImage = images.first {
+                
+                // Show preview for single processed image (likely stitched or cropped)
+                let result = multiPartResult.toImageProcessingResult()
+                
+                await MainActor.run {
+                    previewOriginalImage = originalImage
+                    previewProcessedImage = singleImage
+                    previewResult = result
+                    showingEnhancedPreview = true
+                }
+            } else {
+                // Multiple separate images - add them directly with confidence indicators
+                await MainActor.run {
+                    for image in multiPartResult.processedImages {
+                        withAnimation {
+                            capturedImages.append(image)
+                            thumbnailOffset = 100 // Reset for next animation
+                        }
+                    }
+                }
+                print("Successfully processed \(multiPartResult.processedImages.count) separate images")
+            }
+            
+            // Clear scanner images
+            await MainActor.run {
+                scannerImages.removeAll()
+            }
         }
     }
 
@@ -490,10 +572,16 @@ struct MultiImageCaptureView: View {
         cameraController.capturePhoto { image in
             guard let image = image else { return }
 
-            // Add the captured image to the array
-            withAnimation {
-                capturedImages.append(image)
-                thumbnailOffset = 100 // Reset for next animation
+            // Process image with analysis and show preview
+            Task {
+                let (processedImage, result) = await ReceiptImageProcessor.shared.processImageWithAnalysis(image, processingType: "Camera Capture")
+                
+                await MainActor.run {
+                    previewOriginalImage = image
+                    previewProcessedImage = processedImage
+                    previewResult = result
+                    showingEnhancedPreview = true
+                }
             }
         }
     }

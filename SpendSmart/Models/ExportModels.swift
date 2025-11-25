@@ -132,6 +132,7 @@ struct ExportReceipt: Codable {
     let totalTax: Double
     let savings: Double
     let items: [ExportReceiptItem]
+    let imageUrls: [String]?
     
     init(from receipt: Receipt, currencyManager: CurrencyManager, targetCurrency: String, convertCurrency: Bool) {
         self.id = receipt.id.uuidString
@@ -159,6 +160,7 @@ struct ExportReceipt: Codable {
         }
         
         self.items = receipt.items.map { ExportReceiptItem(from: $0) }
+        self.imageUrls = receipt.image_urls.isEmpty ? nil : receipt.image_urls
     }
 }
 
@@ -191,6 +193,10 @@ struct ExportCategorySummary: Codable {
     let transactionCount: Int
     let averageSpent: Double
     let percentage: Double
+    let totalSavings: Double
+    let averageSavings: Double
+    let savingsPercentage: Double
+    let originalTotal: Double
 }
 
 /// Account information for export (privacy-safe)
@@ -232,6 +238,27 @@ struct ExportData: Codable {
         let convertCurrency: Bool
         let targetCurrency: String
     }
+}
+
+// MARK: - Enhanced Export Data for JSON
+
+/// Enhanced export data with additional metadata
+struct EnhancedExportData: Codable {
+    let metadata: ExportMetadata
+    let accountInfo: ExportAccountInfo?
+    let receipts: [ExportReceipt]?
+    let categorySummary: [ExportCategorySummary]?
+    let exportConfiguration: ExportData.ExportConfigurationData
+}
+
+/// Export metadata with additional information
+struct ExportMetadata: Codable {
+    let exportDate: Date
+    let appVersion: String
+    let exportFormat: String
+    let totalReceipts: Int
+    let totalItems: Int
+    let totalCategories: Int
 }
 
 // MARK: - Export Result

@@ -20,6 +20,8 @@ class CurrencyManager: ObservableObject {
         didSet {
             UserDefaults.standard.set(preferredCurrency, forKey: preferredCurrencyKey)
             addToRecentCurrencies(preferredCurrency)
+            // Sync change to Supabase so the user's onboarding record stays current
+            Task { await syncPreferredCurrencyToSupabase(preferredCurrency) }
         }
     }
 
@@ -218,6 +220,41 @@ class CurrencyManager: ObservableObject {
         // Use the synchronous version for UI formatting
         let convertedAmount = convertAmountSync(amount, from: originalCurrency, to: preferredCurrency)
         return formatAmount(convertedAmount, currencyCode: preferredCurrency)
+    }
+
+    // MARK: - Cloud sync
+    private func syncPreferredCurrencyToSupabase(_ currencyCode: String) async {
+        // Ensure user is authenticated
+        guard let user = await SupabaseManager.shared.getCurrentUser() else {
+            print("ℹ️ [CurrencyManager] Skipping Supabase sync (no user)")
+            return
+        }
+
+        struct UpdateCurrency: Encodable { let currency_preference: String }
+        let supabase = SupabaseManager.shared.supabaseClient
+
+        do {
+            // Try update existing row for this user
+            try await supabase
+                .from("user_onboarding")
+                .update(UpdateCurrency(currency_preference: currencyCode))
+                .eq("user_id", value: user.id)
+                .execute()
+            print("✅ [CurrencyManager] Updated currency_preference → \(currencyCode) for user \(user.id)")
+        } catch {
+            // Fallback: upsert minimal row if none exists yet
+            print("⚠️ [CurrencyManager] Update failed, attempting upsert: \(error.localizedDescription)")
+            struct UpsertRow: Encodable { let user_id: String; let currency_preference: String }
+            do {
+                try await supabase
+                    .from("user_onboarding")
+                    .upsert(UpsertRow(user_id: user.id, currency_preference: currencyCode), onConflict: "user_id")
+                    .execute()
+                print("✅ [CurrencyManager] Upserted currency_preference for user \(user.id)")
+            } catch {
+                print("❌ [CurrencyManager] Failed to sync currency to Supabase: \(error.localizedDescription)")
+            }
+        }
     }
 
     // Asynchronous conversion between currencies using real-time rates

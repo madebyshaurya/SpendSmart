@@ -152,18 +152,6 @@ struct MapViewModal: View {
                 Text("Spending Map")
                     .font(.instrumentSans(size: 20, weight: .semibold))
                     .foregroundColor(primaryTextColor)
-
-                // Beta chip tag
-                Text("BETA")
-                    .font(.instrumentSans(size: 10, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule()
-                            .fill(Color.blue)
-                            .shadow(color: Color.black.opacity(0.1), radius: 1, x: 0, y: 1)
-                    )
             }
 
             Spacer()

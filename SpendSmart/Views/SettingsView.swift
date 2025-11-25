@@ -72,7 +72,7 @@ struct SettingsView: View {
                         Text("Email")
                             .font(.instrumentSans(size: 16))
                         Spacer()
-                        Text(appState.userEmail.isEmpty ? "No Email" : appState.userEmail)
+                        Text(appState.userEmail.isEmpty ? "Apple ID User" : appState.userEmail)
                             .font(.instrumentSans(size: 16))
                             .foregroundColor(.gray)
                     }
@@ -99,15 +99,11 @@ struct SettingsView: View {
 
             // Help & Support Section
             Section(header: SectionHeaderView(title: "Help & Support", icon: "questionmark.circle.fill")) {
-                NavigationLink(destination: FAQView()) {
-                    Text("FAQs")
-                        .font(.instrumentSans(size: 16))
-                }
-
                 NavigationLink(destination: AboutView()) {
                     Text("About SpendSmart")
                         .font(.instrumentSans(size: 16))
                 }
+                .glassRow()
             }
 
             // Account Actions Section
@@ -123,6 +119,7 @@ struct SettingsView: View {
                         Spacer()
                     }
                 }
+                .buttonStyle(.glass)
                 .alert("Sign Out", isPresented: $showingSignOutConfirmation) {
                     Button("Cancel", role: .cancel) {}
                     Button("Sign Out", role: .destructive) {
@@ -143,6 +140,7 @@ struct SettingsView: View {
                         Spacer()
                     }
                 }
+                .buttonStyle(.glass)
                 .alert("Delete Account", isPresented: $showingDeleteConfirmation) {
                     Button("Cancel", role: .cancel) {}
                     Button("Delete", role: .destructive) {
@@ -160,6 +158,36 @@ struct SettingsView: View {
 
             // Preferences section
             Section(header: SectionHeaderView(title: "Preferences", icon: "gearshape.fill")) {
+                // Appearance
+                Picker("Appearance", selection: $appState.appearanceSelection) {
+                    Text("System").tag(AppState.Appearance.system)
+                    Text("Light").tag(AppState.Appearance.light)
+                    Text("Dark").tag(AppState.Appearance.dark)
+                }
+                .pickerStyle(SegmentedPickerStyle())
+
+                // Receipt color style
+                Toggle(isOn: $appState.usePlainReceiptColors) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Plain Receipt Colors")
+                            .font(.instrumentSans(size: 16))
+                        Text("Use a neutral color for receipt cards instead of logo-extracted colors")
+                            .font(.instrumentSans(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                }
+
+                // Haptics
+                Toggle(isOn: $appState.isHapticsEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Haptics")
+                            .font(.instrumentSans(size: 16))
+                        Text("Vibration feedback for taps, selections, and actions")
+                            .font(.instrumentSans(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                }
+
                 NavigationLink(destination: CurrencySettingsView()) {
                     HStack {
                         Text("Currency")
@@ -187,6 +215,7 @@ struct SettingsView: View {
                             .foregroundColor(.blue)
                     }
                 }
+                .glassRow()
             }
 
             // Other section
@@ -195,6 +224,7 @@ struct SettingsView: View {
                     Text("Credits")
                         .font(.instrumentSans(size: 16))
                 }
+                .glassRow()
 
                 // Check for updates button
                 Button(action: {
@@ -216,6 +246,7 @@ struct SettingsView: View {
                         }
                     }
                 }
+                .glassRow()
                 .disabled(isCheckingForUpdates)
                 
                 // Temporary option to test onboarding
@@ -237,6 +268,7 @@ struct SettingsView: View {
                             .foregroundColor(.blue)
                     }
                 }
+                .glassRow(tint: .blue)
             }
             }
             .listStyle(.insetGrouped)
@@ -393,3 +425,4 @@ struct SettingsView: View {
         }
     }
 }
+

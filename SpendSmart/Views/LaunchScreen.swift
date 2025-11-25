@@ -59,56 +59,7 @@ struct LaunchScreen: View {
 
                 VStack(spacing: 0) {
                     // Header - responsive sizing
-                    VStack(spacing: adaptiveSpacing(base: 8, geometry: geometry)) {
-                        Text("SpendSmart")
-                            .font(.instrumentSerifItalic(size: adaptiveFontSize(base: 42, geometry: geometry)))
-                            .bold()
-                            .foregroundColor(colorScheme == .dark ? .white : Color(hex: "1E293B"))
-                        Text("Less clutter, more clarity.")
-                            .font(.instrumentSans(size: adaptiveFontSize(base: 16, geometry: geometry)))
-                            .foregroundColor(colorScheme == .dark ? .gray : Color(hex: "64748B"))
-                            .padding(.bottom, adaptiveSpacing(base: 20, geometry: geometry))
-
-                        // AI Pill Badge
-                        Text("AI-POWERED • 100% FREE")
-                            .font(.instrumentSans(size: adaptiveFontSize(base: 12, geometry: geometry)))
-                            .fontWeight(.medium)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .fill(colorScheme == .dark ? Color(hex: "3B82F6").opacity(0.2) : Color(hex: "DBEAFE"))
-                            )
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [
-                                                Color(hex: "60A5FA").opacity(0.2),
-                                                Color(hex: "818CF8").opacity(0.8),
-                                                Color(hex: "C084FC").opacity(0.8),
-                                                Color(hex: "60A5FA").opacity(0.2)
-                                            ]),
-                                            startPoint: gradientStart,
-                                            endPoint: gradientEnd
-                                        ),
-                                        lineWidth: 1
-                                    )
-                                    .animation(
-                                        Animation.linear(duration: 3)
-                                            .repeatForever(autoreverses: false),
-                                        value: gradientStart
-                                    )
-                            )
-                            .foregroundColor(colorScheme == .dark ? Color(hex: "60A5FA") : Color(hex: "2563EB"))
-                            .onAppear {
-                                withAnimation(Animation.linear(duration: 3).repeatForever(autoreverses: false)) {
-                                    gradientStart = UnitPoint(x: 1, y: 0.5)
-                                    gradientEnd = UnitPoint(x: 2, y: 0.5)
-                                }
-                            }
-                    }
-                    .padding(.top, adaptiveTopPadding(geometry: geometry))
+                    heroHeader(geometry: geometry)
 
                     // Feature carousel - responsive height
                     TabView(selection: $currentPage) {
@@ -139,39 +90,32 @@ struct LaunchScreen: View {
 
                     // Sign in button - at bottom
                     VStack(spacing: 16) {
-                        CustomSignInWithAppleButton { result in
-                            switch result {
-                            case .success(let authResults):
-                                handleSignInWithApple(authResults)
-                            case .failure(let error):
-                                print("Sign in with Apple failed: \(error.localizedDescription)")
+                        Group {
+                            CustomSignInWithAppleButton { result in
+                                switch result {
+                                case .success(let authResults):
+                                    handleSignInWithApple(authResults)
+                                case .failure(let error):
+                                    print("Sign in with Apple failed: \(error.localizedDescription)")
+                                }
                             }
                         }
-                        .shadow(color: colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.05), radius: 10, x: 0, y: 4)
+                        .modifier(
+                            ConditionalGlassButtonModifier()
+                        )
 
-                        // Continue as guest button
-                        Button {
-                            showGuestModeAlert = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "person.crop.circle")
-                                    .font(.system(size: 16))
-
-                                Text("Continue as guest")
-                                    .font(.instrumentSans(size: 16, weight: .medium))
-                            }
-                            .foregroundColor(colorScheme == .dark ? .white : Color(hex: "3B82F6"))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .strokeBorder(
-                                        colorScheme == .dark ? Color.white.opacity(0.2) : Color(hex: "3B82F6").opacity(0.5),
-                                        lineWidth: 1.5
-                                    )
-                            )
-                        }
-                        .padding(.top, 8)
+                        // Skip for now button - COMMENTED OUT
+                        // Button {
+                        //     showGuestModeAlert = true
+                        // } label: {
+                        //     HStack(spacing: 8) {
+                        //         Text("Skip for now")
+                        //             .font(.instrumentSans(size: 14, weight: .medium))
+                        //     }
+                        //     .foregroundColor(colorScheme == .dark ? .white : Color(hex: "3B82F6"))
+                        //     .frame(maxWidth: .infinity)
+                        // }
+                        // .padding(.top, 8)
 
                         Text("No in-app purchases or ads. We respect your privacy.")
                             .font(.instrumentSans(size: adaptiveFontSize(base: 12, geometry: geometry)))
@@ -191,20 +135,76 @@ struct LaunchScreen: View {
         .onDisappear {
             stopAutoScroll()
         }
-        .alert("Continue as Guest", isPresented: $showGuestModeAlert) {
-            Button("Continue", role: .none) {
-                enableGuestMode()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Your receipts will be saved on this device only. To save receipts in the cloud, please sign in with Apple.")
-        }
+        // GUEST MODE ALERT - COMMENTED OUT
+        // .alert("Skip Sign In", isPresented: $showGuestModeAlert) {
+        //     Button("Skip", role: .none) {
+        //         enableGuestMode()
+        //     }
+        //     Button("Cancel", role: .cancel) {}
+        // } message: {
+        //     Text("Your receipts will be saved on this device only. To save receipts in the cloud, please sign in with Apple.")
+        // }
     }
 
     private var backgroundColor: some View {
         colorScheme == .dark ?
         Color(hex: "0A0A0A").edgesIgnoringSafeArea(.all) :
         Color(hex: "F8FAFC").edgesIgnoringSafeArea(.all)
+    }
+
+    @ViewBuilder
+    private func heroHeader(geometry: GeometryProxy) -> some View {
+        let badgeTint = colorScheme == .dark ? Color(hex: "3B82F6") : Color(hex: "DBEAFE")
+
+        VStack(spacing: adaptiveSpacing(base: 8, geometry: geometry)) {
+            Text("SpendSmart")
+                .font(.instrumentSerifItalic(size: adaptiveFontSize(base: 42, geometry: geometry)))
+                .bold()
+                .foregroundColor(colorScheme == .dark ? .white : Color(hex: "1E293B"))
+            Text("Less clutter, more clarity.")
+                .font(.instrumentSans(size: adaptiveFontSize(base: 16, geometry: geometry)))
+                .foregroundColor(colorScheme == .dark ? .gray : Color(hex: "64748B"))
+                .padding(.bottom, adaptiveSpacing(base: 20, geometry: geometry))
+
+            Text("AI-POWERED • 100% FREE")
+                .font(.instrumentSans(size: adaptiveFontSize(base: 12, geometry: geometry)))
+                .fontWeight(.medium)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .glassCompatCapsule(tint: badgeTint, interactive: true)
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color(hex: "60A5FA").opacity(0.2),
+                                    Color(hex: "818CF8").opacity(0.8),
+                                    Color(hex: "C084FC").opacity(0.8),
+                                    Color(hex: "60A5FA").opacity(0.2)
+                                ]),
+                                startPoint: gradientStart,
+                                endPoint: gradientEnd
+                            ),
+                            lineWidth: 1
+                        )
+                        .animation(
+                            Animation.linear(duration: 3)
+                                .repeatForever(autoreverses: false),
+                            value: gradientStart
+                        )
+                )
+                .foregroundColor(colorScheme == .dark ? Color(hex: "60A5FA") : Color(hex: "2563EB"))
+                .onAppear {
+                    withAnimation(Animation.linear(duration: 3).repeatForever(autoreverses: false)) {
+                        gradientStart = UnitPoint(x: 1, y: 0.5)
+                        gradientEnd = UnitPoint(x: 2, y: 0.5)
+                    }
+                }
+        }
+        .padding(24)
+        .glassCompatRect(cornerRadius: 28, interactive: true)
+        .padding(.horizontal, 24)
+        .padding(.top, adaptiveSpacing(base: 24, geometry: geometry))
     }
 
     private func checkForExistingSession() {
@@ -234,10 +234,13 @@ struct LaunchScreen: View {
                 
                 // Try backend API first (new method)
                 do {
-                    let backendResponse = try await BackendAPIService.shared.signInWithApple(idToken: tokenString)
+                    let backendResponse = try await BackendAPIService.shared.signInWithApple(idToken: tokenString, userEmail: credential.email)
                     print("✅ [iOS] Backend API sign-in successful!")
                     print("👤 [iOS] User ID: \(backendResponse.data.user?.id ?? "No ID")")
                     print("📧 [iOS] User Email: \(backendResponse.data.user?.email ?? "No Email")")
+                    
+                    // Sync the BackendAPIService authentication token
+                    await BackendAPIService.shared.syncAuthTokenFromSupabase()
                     
                     DispatchQueue.main.async {
                         print("🔄 [iOS] Updating app state from backend API...")
@@ -246,19 +249,21 @@ struct LaunchScreen: View {
                         let isNewUser = credential.user == backendResponse.data.user?.id && credential.email != nil
                         print("🆕 [iOS] Is new user: \(isNewUser)")
                         
-                        appState.userEmail = backendResponse.data.user?.email ?? "No Email"
+                        // Use the actual email from Apple credential if available, otherwise fall back to backend response
+                        let userEmail = credential.email ?? backendResponse.data.user?.email ?? "Apple ID User"
+                        appState.userEmail = userEmail
                         print("📧 [iOS] Set userEmail to: \(appState.userEmail)")
                         
+                        // Store the actual email in UserDefaults for session restoration
+                        UserDefaults.standard.set(userEmail, forKey: "backend_user_email")
+                        print("📧 [iOS] Stored email in UserDefaults: \(userEmail)")
+
                         appState.isLoggedIn = true
                         appState.isGuestUser = false
                         appState.useLocalStorage = false
-                        print("✅ [iOS] Set isLoggedIn to: \(appState.isLoggedIn)")
+                        appState.isFirstLogin = isNewUser
                         
-                        // Set first login flag to trigger onboarding
-                        if isNewUser {
-                            appState.isFirstLogin = true
-                            print("🎉 [iOS] Set isFirstLogin to: \(appState.isFirstLogin)")
-                        }
+                        print("✅ [iOS] Backend API session restored successfully")
                     }
                     
                     print("✅ Successfully signed in with Apple via Backend API!")
@@ -275,6 +280,9 @@ struct LaunchScreen: View {
                 print("👤 [iOS] User ID: \(response.data.user?.id ?? "No ID")")
                 print("📧 [iOS] User Email: \(response.data.user?.email ?? "No Email")")
 
+                // Sync the BackendAPIService authentication token
+                await BackendAPIService.shared.syncAuthTokenFromSupabase()
+
                 DispatchQueue.main.async {
                     print("🔄 [iOS] Updating app state from Supabase...")
 
@@ -282,19 +290,21 @@ struct LaunchScreen: View {
                     let isNewUser = credential.user == response.data.user?.id && credential.email != nil
                     print("🆕 [iOS] Is new user: \(isNewUser)")
 
-                    appState.userEmail = response.data.user?.email ?? "No Email"
+                    // Use the actual email from Apple credential if available, otherwise fall back to Supabase response
+                    let userEmail = credential.email ?? response.data.user?.email ?? "Apple ID User"
+                    appState.userEmail = userEmail
                     print("📧 [iOS] Set userEmail to: \(appState.userEmail)")
+                    
+                    // Store the actual email in UserDefaults for session restoration
+                    UserDefaults.standard.set(userEmail, forKey: "backend_user_email")
+                    print("📧 [iOS] Stored email in UserDefaults: \(userEmail)")
 
                     appState.isLoggedIn = true
                     appState.isGuestUser = false
                     appState.useLocalStorage = false
-                    print("✅ [iOS] Set isLoggedIn to: \(appState.isLoggedIn)")
-
-                    // Set first login flag to trigger onboarding
-                    if isNewUser {
-                        appState.isFirstLogin = true
-                        print("🎉 [iOS] Set isFirstLogin to: \(appState.isFirstLogin)")
-                    }
+                    appState.isFirstLogin = isNewUser
+                    
+                    print("✅ [iOS] Supabase session restored successfully")
                 }
 
                 print("✅ Successfully signed in with Apple via Supabase!")
@@ -434,6 +444,24 @@ struct LaunchScreen: View {
             return min(screenHeight * 0.4, 320)
         } else {
             return min(screenHeight * 0.45, 400)
+        }
+    }
+}
+
+private struct ConditionalGlassButtonModifier: ViewModifier {
+    @Environment(\.colorScheme) var colorScheme
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+                .buttonStyle(GlassProminentButtonStyle())
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.05), radius: 10, x: 0, y: 4)
+        } else {
+            content
+                .buttonStyle(.borderedProminent)
+                .tint(colorScheme == .dark ? Color(hex: "1F2937") : Color(hex: "3B82F6"))
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.05), radius: 10, x: 0, y: 4)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }
 }

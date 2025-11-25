@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+import VisionKit
 
 // Camera preview view with loading indicator
 fileprivate struct CameraPreviewView: View {
@@ -185,6 +186,16 @@ struct SingleImageCaptureView: View {
     @State private var showPreview = false
     @State private var animateCapture = false
     @State private var animateFlash = false
+    
+    // Document scanner integration
+    @State private var showingDocumentScanner = false
+    @State private var scannerImages: [UIImage] = []
+    
+    // Enhanced preview system
+    @State private var showingEnhancedPreview = false
+    @State private var previewOriginalImage: UIImage?
+    @State private var previewProcessedImage: UIImage?
+    @State private var previewResult: ImageProcessingResult?
 
     // Animation properties
     @State private var captureScale: CGFloat = 1.0
@@ -205,30 +216,10 @@ struct SingleImageCaptureView: View {
             // UI overlay
             VStack {
                 // Top bar with controls
-                HStack {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(12)
-                            .background(Circle().fill(Color.black.opacity(0.5)))
-                    }
-
-                    Spacer()
-
-                    Button {
-                        isFlashOn.toggle()
-                    } label: {
-                        Image(systemName: isFlashOn ? "bolt.fill" : "bolt.slash")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(12)
-                            .background(Circle().fill(Color.black.opacity(0.5)))
-                    }
-                }
-                .padding()
+                controlBar
+                    .padding(16)
+                    .glassCompatRect(cornerRadius: 24, interactive: true)
+                    .padding()
 
                 Spacer()
 
@@ -283,11 +274,8 @@ struct SingleImageCaptureView: View {
                                 .foregroundColor(.white)
                                 .padding(.vertical, 10)
                                 .padding(.horizontal, 20)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.red.opacity(0.8))
-                                )
                             }
+                            .glassCompatCapsule(tint: .red, interactive: true)
 
                             Button {
                                 dismiss()
@@ -300,11 +288,8 @@ struct SingleImageCaptureView: View {
                                 .foregroundColor(.white)
                                 .padding(.vertical, 10)
                                 .padding(.horizontal, 20)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.green.opacity(0.8))
-                                )
                             }
+                            .glassCompatCapsule(tint: .green, interactive: true)
                         }
                         .padding(.bottom, 30)
                     }
@@ -318,6 +303,102 @@ struct SingleImageCaptureView: View {
         .onDisappear {
             cameraController.stopSession()
         }
+        .sheet(isPresented: $showingDocumentScanner) {
+            DocumentScannerView(
+                scannedImages: $scannerImages,
+                onCompletion: { images in
+                    handleScannedImages(images)
+                },
+                onError: { error in
+                    print("Document scanning error: \(error.localizedDescription)")
+                }
+            )
+        }
+        .sheet(isPresented: $showingEnhancedPreview) {
+            if let originalImage = previewOriginalImage,
+               let processedImage = previewProcessedImage,
+               let result = previewResult {
+                EnhancedReceiptPreviewView(
+                    originalImage: originalImage,
+                    processedImage: processedImage,
+                    processingResult: result,
+                    onAccept: { finalImage in
+                        capturedImage = finalImage
+                        resetPreviewState()
+                    },
+                    onReject: {
+                        resetPreviewState()
+                    }
+                )
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var controlBar: some View {
+        HStack {
+            let dismissLabel = {
+                Image(systemName: "xmark")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(12)
+            }
+            
+            Button(action: { dismiss() }, label: dismissLabel)
+                .glassCompatCircle(interactive: true)
+
+            Spacer()
+            
+            if DocumentScannerAvailability.isAvailable {
+                let scannerLabel = {
+                    Image(systemName: "doc.text.viewfinder")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(12)
+                }
+                
+                Button(action: { showingDocumentScanner = true }, label: scannerLabel)
+                    .glassCompatCircle(tint: .blue, interactive: true)
+            }
+
+            let flashLabel = {
+                Image(systemName: isFlashOn ? "bolt.fill" : "bolt.slash")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(12)
+            }
+
+            Button(action: { isFlashOn.toggle() }, label: flashLabel)
+                .glassCompatCircle(interactive: true)
+        }
+    }
+    
+    // MARK: - Document Scanner Methods
+    
+    private func handleScannedImages(_ images: [UIImage]) {
+        // For single image capture, take the first scanned image and enhance it
+        guard let firstImage = images.first else { return }
+        
+        Task {
+            let (processedImage, result) = await ReceiptImageProcessor.shared.processImageWithAnalysis(firstImage, processingType: "VisionKit Scan")
+            
+            await MainActor.run {
+                previewOriginalImage = firstImage
+                previewProcessedImage = processedImage
+                previewResult = result
+                showingEnhancedPreview = true
+                scannerImages.removeAll()
+            }
+        }
+        
+        print("Successfully processed scanned image for single capture")
+    }
+    
+    private func resetPreviewState() {
+        previewOriginalImage = nil
+        previewProcessedImage = nil
+        previewResult = nil
+        showingEnhancedPreview = false
     }
 
     private func capturePhoto() {
@@ -343,12 +424,16 @@ struct SingleImageCaptureView: View {
         cameraController.capturePhoto { image in
             guard let image = image else { return }
 
-            // Set the captured image
-            capturedImage = image
-
-            // Show preview
-            withAnimation {
-                showPreview = true
+            // Process image with analysis and show enhanced preview
+            Task {
+                let (processedImage, result) = await ReceiptImageProcessor.shared.processImageWithAnalysis(image, processingType: "Camera Capture")
+                
+                await MainActor.run {
+                    previewOriginalImage = image
+                    previewProcessedImage = processedImage
+                    previewResult = result
+                    showingEnhancedPreview = true
+                }
             }
         }
     }

@@ -130,17 +130,11 @@ struct DataExportView: View {
                         .font(.system(size: 14, weight: .medium))
                         .rotationEffect(.degrees(showingFormatPicker ? 180 : 0))
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showingFormatPicker)
-                }
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ?
-                              LinearGradient(colors: [Color(.systemGray6), Color(.systemGray6).opacity(0.9)], startPoint: .topLeading, endPoint: .bottomTrailing) :
-                              LinearGradient(colors: [Color.white, Color.white.opacity(0.95)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .shadow(color: colorScheme == .dark ? Color.blue.opacity(0.1) : Color.black.opacity(0.05), radius: 8, x: 0, y: 3)
-                )
             }
-            .buttonStyle(ExportButtonStyle())
+            .padding()
+        }
+        .glassCompatRect(cornerRadius: 12)
+        .buttonStyle(ExportButtonStyle())
         }
     }
 
@@ -202,24 +196,11 @@ struct DataExportView: View {
                 }
             }
             .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ?
-                          LinearGradient(colors: [
-                            isSelected ? Color.blue.opacity(0.1) : Color(.systemGray6),
-                            isSelected ? Color.blue.opacity(0.05) : Color(.systemGray6).opacity(0.9)
-                          ], startPoint: .topLeading, endPoint: .bottomTrailing) :
-                          LinearGradient(colors: [
-                            isSelected ? Color.blue.opacity(0.05) : Color.white,
-                            isSelected ? Color.blue.opacity(0.02) : Color.white.opacity(0.95)
-                          ], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .shadow(color: colorScheme == .dark ?
-                           (isSelected ? Color.blue.opacity(0.2) : Color.black.opacity(0.1)) :
-                           (isSelected ? Color.blue.opacity(0.1) : Color.black.opacity(0.05)),
-                           radius: isSelected ? 10 : 5, x: 0, y: isSelected ? 4 : 2)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
-            )
         }
+        .glassCompatRect(
+            cornerRadius: 12,
+            tint: isSelected ? .blue : nil
+        )
         .buttonStyle(ExportButtonStyle())
     }
 
@@ -282,24 +263,11 @@ struct DataExportView: View {
                 }
             }
             .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ?
-                          LinearGradient(colors: [
-                            isSelected ? Color.blue.opacity(0.1) : Color(.systemGray6),
-                            isSelected ? Color.blue.opacity(0.05) : Color(.systemGray6).opacity(0.9)
-                          ], startPoint: .topLeading, endPoint: .bottomTrailing) :
-                          LinearGradient(colors: [
-                            isSelected ? Color.blue.opacity(0.05) : Color.white,
-                            isSelected ? Color.blue.opacity(0.02) : Color.white.opacity(0.95)
-                          ], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .shadow(color: colorScheme == .dark ?
-                           (isSelected ? Color.blue.opacity(0.2) : Color.black.opacity(0.1)) :
-                           (isSelected ? Color.blue.opacity(0.1) : Color.black.opacity(0.05)),
-                           radius: isSelected ? 10 : 5, x: 0, y: isSelected ? 4 : 2)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
-            )
         }
+        .glassCompatRect(
+            cornerRadius: 12,
+            tint: isSelected ? .blue : nil
+        )
         .buttonStyle(ExportButtonStyle())
     }
 
@@ -346,13 +314,7 @@ struct DataExportView: View {
             }
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ?
-                      LinearGradient(colors: [Color(.systemGray5), Color(.systemGray5).opacity(0.9)], startPoint: .topLeading, endPoint: .bottomTrailing) :
-                      LinearGradient(colors: [Color(.systemGray6), Color(.systemGray6).opacity(0.95)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .shadow(color: colorScheme == .dark ? Color.blue.opacity(0.1) : Color.black.opacity(0.05), radius: 6, x: 0, y: 2)
-        )
+        .glassCompatRect(cornerRadius: 12)
         .transition(.asymmetric(
             insertion: .move(edge: .top).combined(with: .opacity),
             removal: .move(edge: .top).combined(with: .opacity)
@@ -400,22 +362,9 @@ struct DataExportView: View {
                 .toggleStyle(SwitchToggleStyle(tint: .blue))
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ?
-                      LinearGradient(colors: [
-                        isOn.wrappedValue ? Color.blue.opacity(0.1) : Color(.systemGray6),
-                        isOn.wrappedValue ? Color.blue.opacity(0.05) : Color(.systemGray6).opacity(0.9)
-                      ], startPoint: .topLeading, endPoint: .bottomTrailing) :
-                      LinearGradient(colors: [
-                        isOn.wrappedValue ? Color.blue.opacity(0.05) : Color.white,
-                        isOn.wrappedValue ? Color.blue.opacity(0.02) : Color.white.opacity(0.95)
-                      ], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .shadow(color: colorScheme == .dark ?
-                       (isOn.wrappedValue ? Color.blue.opacity(0.2) : Color.black.opacity(0.1)) :
-                       (isOn.wrappedValue ? Color.blue.opacity(0.1) : Color.black.opacity(0.05)),
-                       radius: isOn.wrappedValue ? 10 : 5, x: 0, y: isOn.wrappedValue ? 4 : 2)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isOn.wrappedValue)
+        .glassCompatRect(
+            cornerRadius: 12,
+            tint: isOn.wrappedValue ? .blue : nil
         )
     }
 
@@ -499,24 +448,10 @@ struct DataExportView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
-                    .background(
-                        ZStack {
-                            // Shadow layer
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(isExportButtonEnabled ? Color.blue.opacity(0.3) : Color.gray.opacity(0.3))
-                                .offset(y: isButtonPressed ? 2 : 4)
-                                .blur(radius: isButtonPressed ? 4 : 8)
-
-                            // Main button
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(isExportButtonEnabled ?
-                                      LinearGradient(colors: [Color.blue, Color.blue.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing) :
-                                      LinearGradient(colors: [Color.gray, Color.gray.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        }
-                    )
-                    .scaleEffect(isButtonPressed ? 0.98 : 1.0)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isButtonPressed)
                 }
+                .glassCompatRect(cornerRadius: 16, tint: .blue, interactive: true)
+                .scaleEffect(isButtonPressed ? 0.98 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isButtonPressed)
                 .disabled(!isExportButtonEnabled)
                 .buttonStyle(PlainButtonStyle())
             }
