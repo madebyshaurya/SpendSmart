@@ -20,6 +20,7 @@
 		50D4C6422E54F415007D5131 /* Shimmer in Frameworks */ = {isa = PBXBuildFile; productRef = 50D4C6412E54F415007D5131 /* Shimmer */; };
 		50E876742F1D91480013F1E4 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 50E876732F1D91480013F1E4 /* RevenueCat */; };
 		50E876762F1D91480013F1E4 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 50E876752F1D91480013F1E4 /* RevenueCatUI */; };
+		50AA11012F3C900100BEEF01 /* SwiftMicroInteractions in Frameworks */ = {isa = PBXBuildFile; productRef = 50AA11002F3C900100BEEF01 /* SwiftMicroInteractions */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -65,6 +66,7 @@
 				50B538E52DAC2DBC00A2999A /* Realtime in Frameworks */,
 				50B538DF2DAC2DBC00A2999A /* Auth in Frameworks */,
 				50B538E32DAC2DBC00A2999A /* PostgREST in Frameworks */,
+				50AA11012F3C900100BEEF01 /* SwiftMicroInteractions in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -120,6 +122,7 @@
 				50E876752F1D91480013F1E4 /* RevenueCatUI */,
 				509160242F1EEFA4002DDC53 /* ConfettiSwiftUI */,
 				509E728B2F294A4600BA105A /* SwiftUICharts */,
+				50AA11002F3C900100BEEF01 /* SwiftMicroInteractions */,
 			);
 			productName = SpendSmart;
 			productReference = 507C569A2D8254DC00CA1FD5 /* SpendSmart.app */;
@@ -157,6 +160,7 @@
 				50E876702F1D91480013F1E4 /* XCRemoteSwiftPackageReference "purchases-ios" */,
 				509160232F1EEFA4002DDC53 /* XCRemoteSwiftPackageReference "ConfettiSwiftUI" */,
 				509E728A2F294A4600BA105A /* XCRemoteSwiftPackageReference "ChartView" */,
+				50AA10FF2F3C900100BEEF01 /* XCRemoteSwiftPackageReference "SwiftMicroInteractions" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 507C569B2D8254DC00CA1FD5 /* Products */;
@@ -468,6 +472,14 @@
 				minimumVersion = 5.55.1;
 			};
 		};
+		50AA10FF2F3C900100BEEF01 /* XCRemoteSwiftPackageReference "SwiftMicroInteractions" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/madebyshaurya/SwiftMicroInteractions";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.2;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -535,6 +547,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 50E876702F1D91480013F1E4 /* XCRemoteSwiftPackageReference "purchases-ios" */;
 			productName = RevenueCatUI;
+		};
+		50AA11002F3C900100BEEF01 /* SwiftMicroInteractions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 50AA10FF2F3C900100BEEF01 /* XCRemoteSwiftPackageReference "SwiftMicroInteractions" */;
+			productName = SwiftMicroInteractions;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

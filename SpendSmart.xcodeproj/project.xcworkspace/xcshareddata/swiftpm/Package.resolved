@@ -1,5 +1,5 @@
 {
-  "originHash" : "476f76e4b0f57c0f38a3401eb7739dcae266a23f279fc133cca187790e725e7e",
+  "originHash" : "f4a0189c7f9d12397da55f7e69c7b95142bab7fdcc86952fdd44ded4dba62a89",
   "pins" : [
     {
       "identity" : "chartview",
@@ -98,6 +98,15 @@
       "state" : {
         "revision" : "45eb0224913ea070ec4fba17291b9e7ecf4749ca",
         "version" : "1.5.1"
+      }
+    },
+    {
+      "identity" : "swiftmicrointeractions",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/madebyshaurya/SwiftMicroInteractions",
+      "state" : {
+        "revision" : "5dfade44c8eb8d852cf44345b948b48814121378",
+        "version" : "1.0.2"
       }
     },
     {

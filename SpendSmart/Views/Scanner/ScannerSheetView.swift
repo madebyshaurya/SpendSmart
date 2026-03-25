@@ -1,3 +1,4 @@
+import SwiftMicroInteractions
 import ConfettiSwiftUI
 import PhotosUI
 import PopupView
@@ -333,6 +334,7 @@ struct ScannerSheetView: View {
                         Toggle("", isOn: $isBatchMode)
                             .labelsHidden()
                             .tint(.brandVibrantBlue)
+                        .microInteraction(.toggle)
                     }
                     .padding(12)
                     .background(
