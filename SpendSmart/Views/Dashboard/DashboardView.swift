@@ -15,38 +15,108 @@ struct DashboardView: View {
     @AppStorage("hasSeenInsightsTip") private var hasSeenInsightsTip = false
     @AppStorage("totalScanCount") private var totalScanCount = 0
 
-    @State private var showAllCategories = false
-    @State private var showAllStores = false
-    @State private var selectedChart: DashboardChart = .trend
-
     @State private var selectedWeekday: WeekdaySpending?
 
     var body: some View {
         NavigationStack {
             Group {
                 if viewModel.isLoading {
-                    // Skeleton loading state - feels 36% faster than spinners
                     DashboardSkeletonView()
                 } else if viewModel.allReceipts.isEmpty {
-                    // Empty state
                     EmptyStateView(type: .dashboard)
                         .background(Color.brandBackground)
                 } else {
-                    // Normal dashboard content
                     ScrollView {
                         VStack(spacing: 20) {
-                            DashboardHeaderSection(
-                                greetingMessage: viewModel.greetingMessage,
-                                welcomeName: viewModel.welcomeName,
-                                userEmoji: viewModel.userEmoji,
-                                onProfileTap: {
+
+                            // 1. Compact header — greeting + streak badge + settings gear
+                            HStack(alignment: .center, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(viewModel.greetingMessage)
+                                        .font(.manrope(size: 14, weight: .medium))
+                                        .foregroundStyle(Color.brandTextSecondary)
+                                    Text(viewModel.welcomeName)
+                                        .font(.instrumentSerif(size: 26))
+                                        .foregroundStyle(Color.brandTextPrimary)
+                                }
+
+                                Spacer()
+
+                                CompactStreakBadge()
+
+                                Button {
                                     haptics.buttonPress()
                                     showSettings = true
+                                } label: {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.brandAccentLight)
+                                            .frame(width: 38, height: 38)
+                                        Text(viewModel.userEmoji)
+                                            .font(.system(size: 18))
+                                    }
                                 }
-                            )
-                                .animateEntrance(index: 0)
+                            }
+                            .animateEntrance(index: 0)
 
-                            // Feature discovery banners
+                            // 2. Hero spending card
+                            HeroSummarySection(
+                                selectedRange: $viewModel.selectedRange,
+                                totalSpent: viewModel.totalSpent,
+                                currencySymbol: viewModel.currencySymbol,
+                                percentageChange: viewModel.percentageChange,
+                                comparisonText: viewModel.comparisonText
+                            )
+                            .animateEntrance(index: 1)
+
+                            // 3. Two-column quick stats grid
+                            LazyVGrid(columns: [
+                                GridItem(.flexible(), spacing: 12),
+                                GridItem(.flexible(), spacing: 12)
+                            ], spacing: 12) {
+                                // Receipts count
+                                quickStatTile(
+                                    icon: "doc.text.fill",
+                                    iconColor: .brandVibrantBlue,
+                                    label: "Receipts",
+                                    value: "\(viewModel.allReceipts.filter { $0.purchase_date >= viewModel.startDate }.count)"
+                                )
+
+                                // Average per receipt
+                                quickStatTile(
+                                    icon: "divide.circle.fill",
+                                    iconColor: .brandSkyBlue,
+                                    label: "Avg / Receipt",
+                                    value: viewModel.formatCurrency(viewModel.averagePerReceipt)
+                                )
+                            }
+                            .animateEntrance(index: 2)
+
+                            // 4. Spending trend chart — clean card, no picker
+                            if !viewModel.spendingChartData.isEmpty {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Spending Trend")
+                                        .font(.manrope(size: 16, weight: .semibold))
+                                        .foregroundStyle(Color.brandTextPrimary)
+
+                                    SpendingLineChart(
+                                        data: viewModel.spendingChartData,
+                                        chartHeight: 180
+                                    )
+                                }
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color.brandSurface)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 16)
+                                                .stroke(Color.brandBorder, lineWidth: 1)
+                                        )
+                                )
+                                .animateEntrance(index: 3)
+                            }
+
+                            // 5. Discovery banners
                             if totalScanCount >= 1 && !hasSeenBatchTip {
                                 DiscoveryBanner(
                                     icon: "square.stack.3d.up",
@@ -64,19 +134,7 @@ struct DashboardView: View {
                                 )
                             }
 
-                            HeroSummarySection(
-                                selectedRange: $viewModel.selectedRange,
-                                totalSpent: viewModel.totalSpent,
-                                currencySymbol: viewModel.currencySymbol,
-                                percentageChange: viewModel.percentageChange,
-                                comparisonText: viewModel.comparisonText
-                            )
-                                .animateEntrance(index: 1)
-
-                            // Scan streak — habit-forming progress indicator
-                            ScanStreakView()
-                                .animateEntrance(index: 2)
-
+                            // 6. AI Insights
                             if viewModel.aiInsight != nil || viewModel.isLoadingInsight {
                                 DashboardAIInsightsSection(
                                     topCategory: viewModel.aiInsight?.topCategory ?? "Top Category",
@@ -89,82 +147,31 @@ struct DashboardView: View {
                                         Task { await viewModel.refreshAIInsight() }
                                     }
                                 )
-                                .animateEntrance(index: 2)
+                                .animateEntrance(index: 4)
                             }
 
-                            // Spending Analytics - shows Today/Weekly/Monthly/Yearly charts
-                            SpendingAnalyticsSection(
-                                selectedRange: viewModel.selectedRange,
-                                spendingData: viewModel.spendingChartData,
-                                weekdayData: viewModel.weekdayData,
-                                selectedWeekday: $selectedWeekday
-                            )
-                                .animateEntrance(index: 3)
-
-                            // Recent Receipts with store logos (moved up for prominence)
+                            // 7. Recent receipts
                             if !viewModel.recentReceipts.isEmpty {
                                 RecentReceiptsSection(
                                     receipts: viewModel.recentReceipts,
                                     hasCloudWriteAccess: subscriptionManager.hasCloudWriteAccess
                                 )
-                                    .animateEntrance(index: 4)
-                            }
-
-                            DashboardQuickStatsSection(
-                                receiptsCount: "\(viewModel.recentReceipts.count + viewModel.allReceipts.filter { $0.purchase_date >= viewModel.startDate }.count)",
-                                averagePerReceipt: viewModel.formatCurrency(viewModel.averagePerReceipt),
-                                totalSaved: viewModel.formatCurrency(viewModel.totalSavings)
-                            )
                                 .animateEntrance(index: 5)
-
-                            if viewModel.hasAnyChartData {
-                                DashboardInsightsSection(
-                                    showToggle: selectedChart == .categories && viewModel.categoryData.count > 6,
-                                    toggleTitle: showAllCategories ? "Show Less" : "See All",
-                                    onToggle: {
-                                        haptics.buttonPress()
-                                        showAllCategories.toggle()
-                                    },
-                                    picker: {
-                                        Picker("Chart", selection: $selectedChart) {
-                                            ForEach(DashboardChart.allCases, id: \.self) { chart in
-                                                Text(chart.rawValue).tag(chart)
-                                            }
-                                        }
-                                        .pickerStyle(.segmented)
-                                    },
-                                    content: {
-                                        chartContent
-                                    }
-                                )
-                                    .animateEntrance(index: 6)
                             }
 
+                            // 8. Map preview
                             if !viewModel.mapPreviewLocations.isEmpty {
                                 DashboardMapPreviewSection(
                                     locations: viewModel.mapPreviewLocations,
                                     position: $viewModel.mapPreviewPosition,
                                     isLoading: viewModel.isMapPreviewLoading
                                 )
-                                    .animateEntrance(index: 7)
-                            }
-
-                            if !viewModel.topStores.isEmpty {
-                                DashboardTopStoresSection(
-                                    stores: viewModel.topStores,
-                                    showAllStores: $showAllStores,
-                                    onToggle: {
-                                        haptics.buttonPress()
-                                        showAllStores.toggle()
-                                    }
-                                )
-                                    .animateEntrance(index: 8)
+                                .animateEntrance(index: 6)
                             }
                         }
                         .padding()
                     }
                     .scrollContentBackground(.hidden)
-                    // .scrollEdgeEffectStyle requires iOS 26
                     .background(Color.brandBackground)
                 }
             }
@@ -188,49 +195,41 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Charts
+    // MARK: - Quick Stat Tile
 
-    @ViewBuilder
-    private var chartContent: some View {
-        switch selectedChart {
-        case .trend:
-            SpendingLineChart(
-                data: viewModel.spendingChartData,
-                chartHeight: 180
-            )
-        case .categories:
-            let displayData = showAllCategories ? viewModel.categoryData : Array(viewModel.categoryData.prefix(6))
-            CategoryPieChart(
-                data: displayData,
-                showLegend: true,
-                chartSize: 170
-            )
-        case .weekday:
-            WeekdayBarChart(data: viewModel.weekdayData)
-        case .stores:
-            StoreBreakdownChart(
-                data: viewModel.storeBreakdownData,
-                maxStores: 8
-            )
-        case .heatmap:
-            SpendingHeatmapCalendar(
-                data: viewModel.heatmapData,
-                month: Date()
-            )
-        case .timeOfDay:
-            TimeOfDayChart(
-                data: viewModel.hourlySpendingData,
-                chartHeight: 180
-            )
-        case .currency:
-            CurrencyMixChart(data: viewModel.currencyData)
-        case .tax:
-            SpendingBarChart(
-                data: viewModel.taxChartData,
-                barColor: .brandWarning,
-                chartHeight: 170
-            )
+    private func quickStatTile(icon: String, iconColor: Color, label: String, value: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundStyle(iconColor)
+                .frame(width: 40, height: 40)
+                .background(iconColor.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.manrope(size: 12, weight: .medium))
+                    .foregroundStyle(Color.brandTextSecondary)
+                Text(value)
+                    .font(.ibmPlexMono(size: 18))
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .foregroundStyle(Color.brandTextPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.brandSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.brandBorder, lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Currency Mix
@@ -347,49 +346,7 @@ struct DashboardView: View {
                 )
         )
     }
-    
-    // MARK: - Category Breakdown Card
-    
-    private var categoryBreakdownCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("By Category")
-                    .font(.manrope(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.brandTextPrimary)
-                
-                Spacer()
-                
-                if viewModel.categoryData.count > 4 {
-                    Button {
-                        haptics.buttonPress()
-                        showAllCategories.toggle()
-                    } label: {
-                        Text(showAllCategories ? "Show Less" : "See All")
-                            .font(.manrope(size: 13, weight: .medium))
-                            .foregroundStyle(Color.brandVibrantBlue)
-                    }
-                }
-            }
-            
-            let displayData = showAllCategories ? viewModel.categoryData : Array(viewModel.categoryData.prefix(4))
-            
-            CategoryPieChart(
-                data: displayData,
-                showLegend: true,
-                chartSize: 160
-            )
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.brandSurface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.brandBorder, lineWidth: 1)
-                )
-        )
-    }
-    
+
     // MARK: - Top Stores Card
     
     // MARK: - Recent Transactions Card
@@ -462,6 +419,33 @@ struct DashboardView: View {
                         .stroke(Color.brandSuccess.opacity(0.3), lineWidth: 1)
                 )
         )
+    }
+}
+
+// MARK: - Compact Streak Badge (inline header version)
+
+private struct CompactStreakBadge: View {
+    @AppStorage("scanStreakCount") private var streakCount = 0
+
+    var body: some View {
+        if streakCount > 0 {
+            HStack(spacing: 4) {
+                Image(systemName: streakCount >= 7 ? "flame.fill" : "flame")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(streakCount >= 7 ? Color.orange : Color.brandVibrantBlue)
+                Text("\(streakCount)")
+                    .font(.ibmPlexMono(size: 14))
+                    .fontWeight(.bold)
+                    .monospacedDigit()
+                    .foregroundStyle(streakCount >= 7 ? Color.orange : Color.brandVibrantBlue)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill((streakCount >= 7 ? Color.orange : Color.brandVibrantBlue).opacity(0.12))
+            )
+        }
     }
 }
 
