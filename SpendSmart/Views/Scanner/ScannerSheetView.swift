@@ -774,7 +774,8 @@ struct ScannerSheetView: View {
                 : LocalReceiptStorage.shared.getAllReceipts()
             InsightsEngine.shared.recompute(receipts: allReceipts)
 
-            // Success haptic
+            // Record streak + success haptic
+            ScanStreakView.recordScan()
             haptics.chaChing()
 
             // Milestone celebrations

@@ -13,6 +13,7 @@ struct SpendSmartApp: App {
         SubscriptionManager.shared.configure()
         // Load persisted insights on launch
         InsightsEngine.shared.load()
+        // Configure micro-interactions (animations only — we have our own haptics)
     }
 
     var body: some Scene {

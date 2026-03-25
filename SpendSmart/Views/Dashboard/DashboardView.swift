@@ -73,6 +73,10 @@ struct DashboardView: View {
                             )
                                 .animateEntrance(index: 1)
 
+                            // Scan streak — habit-forming progress indicator
+                            ScanStreakView()
+                                .animateEntrance(index: 2)
+
                             if viewModel.aiInsight != nil || viewModel.isLoadingInsight {
                                 DashboardAIInsightsSection(
                                     topCategory: viewModel.aiInsight?.topCategory ?? "Top Category",
