@@ -261,6 +261,7 @@ struct ScannerSheetView: View {
                         .font(.system(size: 48, weight: .light))
                         .foregroundColor(.white)
                 }
+                .glassBackground(in: .circle)
                 .shadow(color: Color.brandVibrantBlue.opacity(0.3), radius: 20, x: 0, y: 10)
 
                 // Title and description
@@ -775,6 +776,23 @@ struct ScannerSheetView: View {
 
             // Success haptic
             haptics.chaChing()
+
+            // Milestone celebrations
+            await MainActor.run {
+                switch totalScanCount {
+                case 10:
+                    haptics.celebration()
+                    // Could show a toast: "10 receipts scanned! You're on a roll."
+                case 25:
+                    haptics.celebration()
+                case 50:
+                    haptics.celebration()
+                case 100:
+                    haptics.celebration()
+                default:
+                    break
+                }
+            }
 
             // Trigger confetti for first scan!
             if wasFirstScan {

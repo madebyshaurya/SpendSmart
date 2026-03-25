@@ -382,6 +382,50 @@ extension View {
     }
 }
 
+// MARK: - Parallax Tilt Effect
+
+struct ParallaxTiltModifier: ViewModifier {
+    @State private var dragOffset: CGSize = .zero
+    let intensity: CGFloat
+
+    init(intensity: CGFloat = 8) {
+        self.intensity = intensity
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .rotation3DEffect(
+                .degrees(Double(dragOffset.height / intensity)),
+                axis: (x: -1, y: 0, z: 0)
+            )
+            .rotation3DEffect(
+                .degrees(Double(dragOffset.width / intensity)),
+                axis: (x: 0, y: 1, z: 0)
+            )
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        withAnimation(.interactiveSpring(response: 0.15)) {
+                            dragOffset = value.translation
+                        }
+                    }
+                    .onEnded { _ in
+                        withAnimation(.brandBouncy) {
+                            dragOffset = .zero
+                        }
+                    }
+            )
+    }
+}
+
+extension View {
+    /// Adds a subtle 3D parallax tilt when the user drags on the view.
+    /// Great for cards, share cards, and hero sections.
+    func parallaxTilt(intensity: CGFloat = 8) -> some View {
+        modifier(ParallaxTiltModifier(intensity: intensity))
+    }
+}
+
 // MARK: - Continuous Rotation
 
 struct ContinuousRotationModifier: ViewModifier {

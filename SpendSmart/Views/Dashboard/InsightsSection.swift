@@ -7,6 +7,7 @@ struct InsightsSection: View {
     @StateObject private var haptics = HapticManager.shared
 
     @AppStorage("totalScanCount") private var totalScanCount = 0
+    @State private var pulseOpacity: CGFloat = 0.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -30,6 +31,12 @@ struct InsightsSection: View {
                             Capsule()
                                 .fill(LinearGradient.brandPremium)
                         )
+                        .shadow(color: Color.brandVibrantBlue.opacity(pulseOpacity), radius: 8)
+                        .onAppear {
+                            withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
+                                pulseOpacity = 0.4
+                            }
+                        }
                 }
             }
 

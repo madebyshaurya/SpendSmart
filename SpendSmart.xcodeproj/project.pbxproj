@@ -31,7 +31,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				APIKeys.template.swift,
 			);
 			target = 507C56992D8254DC00CA1FD5 /* SpendSmart */;
 		};

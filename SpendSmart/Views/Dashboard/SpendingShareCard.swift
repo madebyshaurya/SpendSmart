@@ -66,6 +66,7 @@ struct SpendingShareCard: View {
         .frame(width: 320, height: 200)
         .background(Color.brandDeepNavy)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .parallaxTilt()
     }
 
     private var formattedAmount: String {

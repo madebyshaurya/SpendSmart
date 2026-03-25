@@ -65,6 +65,7 @@ struct HeroSummarySection: View {
                         .stroke(Color.brandBorder, lineWidth: 1)
                 )
         )
+        .glassBackground(in: .rect(cornerRadius: 20))
     }
 
     private func percentageChangePill(change: Double) -> some View {

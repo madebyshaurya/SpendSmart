@@ -300,6 +300,7 @@ struct ChatView: View {
             Color.brandBackground
                 .shadow(color: .black.opacity(0.05), radius: 4, y: -2)
         )
+        .glassBackground()
     }
     
     // MARK: - Charts Toggle Chip
