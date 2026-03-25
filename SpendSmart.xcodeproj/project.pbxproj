@@ -8,7 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		5060B9062D827079000CCB51 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 5060B9052D827079000CCB51 /* Supabase */; };
-		50A4FA3C2D909F7200C89441 /* GoogleGenerativeAI in Frameworks */ = {isa = PBXBuildFile; productRef = 50A4FA3B2D909F7200C89441 /* GoogleGenerativeAI */; };
+		507AE8962F09D60100159C74 /* PopupView in Frameworks */ = {isa = PBXBuildFile; productRef = 507AE8952F09D60100159C74 /* PopupView */; };
+		509160252F1EEFA4002DDC53 /* ConfettiSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 509160242F1EEFA4002DDC53 /* ConfettiSwiftUI */; };
+		509E728C2F294A4600BA105A /* SwiftUICharts in Frameworks */ = {isa = PBXBuildFile; productRef = 509E728B2F294A4600BA105A /* SwiftUICharts */; };
 		50AF24232E5D331D00E60B56 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 50AF24222E5D331D00E60B56 /* Lottie */; };
 		50B538DF2DAC2DBC00A2999A /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538DE2DAC2DBC00A2999A /* Auth */; };
 		50B538E12DAC2DBC00A2999A /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E02DAC2DBC00A2999A /* Functions */; };
@@ -16,7 +18,8 @@
 		50B538E52DAC2DBC00A2999A /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E42DAC2DBC00A2999A /* Realtime */; };
 		50B538E72DAC2DBC00A2999A /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 50B538E62DAC2DBC00A2999A /* Storage */; };
 		50D4C6422E54F415007D5131 /* Shimmer in Frameworks */ = {isa = PBXBuildFile; productRef = 50D4C6412E54F415007D5131 /* Shimmer */; };
-		50E064712DEE4183009E889E /* OpenAI in Frameworks */ = {isa = PBXBuildFile; productRef = 50E064702DEE4183009E889E /* OpenAI */; };
+		50E876742F1D91480013F1E4 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 50E876732F1D91480013F1E4 /* RevenueCat */; };
+		50E876762F1D91480013F1E4 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 50E876752F1D91480013F1E4 /* RevenueCatUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +31,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				APIKeys.template.swift,
 			);
 			target = 507C56992D8254DC00CA1FD5 /* SpendSmart */;
 		};
@@ -50,12 +54,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				5060B9062D827079000CCB51 /* Supabase in Frameworks */,
-				50A4FA3C2D909F7200C89441 /* GoogleGenerativeAI in Frameworks */,
-				50E064712DEE4183009E889E /* OpenAI in Frameworks */,
+				507AE8962F09D60100159C74 /* PopupView in Frameworks */,
+				509E728C2F294A4600BA105A /* SwiftUICharts in Frameworks */,
 				50D4C6422E54F415007D5131 /* Shimmer in Frameworks */,
 				50B538E72DAC2DBC00A2999A /* Storage in Frameworks */,
+				50E876742F1D91480013F1E4 /* RevenueCat in Frameworks */,
 				50AF24232E5D331D00E60B56 /* Lottie in Frameworks */,
+				509160252F1EEFA4002DDC53 /* ConfettiSwiftUI in Frameworks */,
 				50B538E12DAC2DBC00A2999A /* Functions in Frameworks */,
+				50E876762F1D91480013F1E4 /* RevenueCatUI in Frameworks */,
 				50B538E52DAC2DBC00A2999A /* Realtime in Frameworks */,
 				50B538DF2DAC2DBC00A2999A /* Auth in Frameworks */,
 				50B538E32DAC2DBC00A2999A /* PostgREST in Frameworks */,
@@ -102,15 +109,18 @@
 			name = SpendSmart;
 			packageProductDependencies = (
 				5060B9052D827079000CCB51 /* Supabase */,
-				50A4FA3B2D909F7200C89441 /* GoogleGenerativeAI */,
 				50B538DE2DAC2DBC00A2999A /* Auth */,
 				50B538E02DAC2DBC00A2999A /* Functions */,
 				50B538E22DAC2DBC00A2999A /* PostgREST */,
 				50B538E42DAC2DBC00A2999A /* Realtime */,
 				50B538E62DAC2DBC00A2999A /* Storage */,
-				50E064702DEE4183009E889E /* OpenAI */,
 				50D4C6412E54F415007D5131 /* Shimmer */,
 				50AF24222E5D331D00E60B56 /* Lottie */,
+				507AE8952F09D60100159C74 /* PopupView */,
+				50E876732F1D91480013F1E4 /* RevenueCat */,
+				50E876752F1D91480013F1E4 /* RevenueCatUI */,
+				509160242F1EEFA4002DDC53 /* ConfettiSwiftUI */,
+				509E728B2F294A4600BA105A /* SwiftUICharts */,
 			);
 			productName = SpendSmart;
 			productReference = 507C569A2D8254DC00CA1FD5 /* SpendSmart.app */;
@@ -142,10 +152,12 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */,
-				50A4FA3A2D909F7200C89441 /* XCRemoteSwiftPackageReference "generative-ai-swift" */,
-				50E0646F2DEE4183009E889E /* XCRemoteSwiftPackageReference "OpenAI" */,
 				50D4C6402E54F415007D5131 /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */,
 				50AF24212E5D331D00E60B56 /* XCRemoteSwiftPackageReference "lottie-ios" */,
+				507AE8942F09D60100159C74 /* XCRemoteSwiftPackageReference "PopupView" */,
+				50E876702F1D91480013F1E4 /* XCRemoteSwiftPackageReference "purchases-ios" */,
+				509160232F1EEFA4002DDC53 /* XCRemoteSwiftPackageReference "ConfettiSwiftUI" */,
+				509E728A2F294A4600BA105A /* XCRemoteSwiftPackageReference "ChartView" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 507C569B2D8254DC00CA1FD5 /* Products */;
@@ -231,7 +243,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -290,7 +302,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -322,9 +334,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -361,9 +372,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -411,12 +421,28 @@
 				minimumVersion = 2.5.1;
 			};
 		};
-		50A4FA3A2D909F7200C89441 /* XCRemoteSwiftPackageReference "generative-ai-swift" */ = {
+		507AE8942F09D60100159C74 /* XCRemoteSwiftPackageReference "PopupView" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/google-gemini/generative-ai-swift.git";
+			repositoryURL = "https://github.com/exyte/PopupView.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.5.6;
+				minimumVersion = 4.1.18;
+			};
+		};
+		509160232F1EEFA4002DDC53 /* XCRemoteSwiftPackageReference "ConfettiSwiftUI" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/simibac/ConfettiSwiftUI.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.0;
+			};
+		};
+		509E728A2F294A4600BA105A /* XCRemoteSwiftPackageReference "ChartView" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/AppPear/ChartView.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.5.5;
 			};
 		};
 		50AF24212E5D331D00E60B56 /* XCRemoteSwiftPackageReference "lottie-ios" */ = {
@@ -435,12 +461,12 @@
 				minimumVersion = 1.5.1;
 			};
 		};
-		50E0646F2DEE4183009E889E /* XCRemoteSwiftPackageReference "OpenAI" */ = {
+		50E876702F1D91480013F1E4 /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/MacPaw/OpenAI.git";
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.4.3;
+				minimumVersion = 5.55.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -451,10 +477,20 @@
 			package = 5060B9042D827079000CCB51 /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Supabase;
 		};
-		50A4FA3B2D909F7200C89441 /* GoogleGenerativeAI */ = {
+		507AE8952F09D60100159C74 /* PopupView */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 50A4FA3A2D909F7200C89441 /* XCRemoteSwiftPackageReference "generative-ai-swift" */;
-			productName = GoogleGenerativeAI;
+			package = 507AE8942F09D60100159C74 /* XCRemoteSwiftPackageReference "PopupView" */;
+			productName = PopupView;
+		};
+		509160242F1EEFA4002DDC53 /* ConfettiSwiftUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 509160232F1EEFA4002DDC53 /* XCRemoteSwiftPackageReference "ConfettiSwiftUI" */;
+			productName = ConfettiSwiftUI;
+		};
+		509E728B2F294A4600BA105A /* SwiftUICharts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 509E728A2F294A4600BA105A /* XCRemoteSwiftPackageReference "ChartView" */;
+			productName = SwiftUICharts;
 		};
 		50AF24222E5D331D00E60B56 /* Lottie */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -491,10 +527,15 @@
 			package = 50D4C6402E54F415007D5131 /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */;
 			productName = Shimmer;
 		};
-		50E064702DEE4183009E889E /* OpenAI */ = {
+		50E876732F1D91480013F1E4 /* RevenueCat */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 50E0646F2DEE4183009E889E /* XCRemoteSwiftPackageReference "OpenAI" */;
-			productName = OpenAI;
+			package = 50E876702F1D91480013F1E4 /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
+		};
+		50E876752F1D91480013F1E4 /* RevenueCatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 50E876702F1D91480013F1E4 /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCatUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

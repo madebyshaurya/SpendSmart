@@ -1,0 +1,162 @@
+//
+//  APIKeys.swift
+//  SpendSmart
+//
+//  SETUP INSTRUCTIONS:
+//  1. Copy this file to APIKeys.swift (same directory)
+//  2. Fill in your API keys below
+//  3. DO NOT commit APIKeys.swift to git (it's in .gitignore)
+//
+
+import Foundation
+
+// MARK: - Backend Configuration
+
+/// Backend environment configuration with automatic detection
+class BackendConfig {
+    static let shared = BackendConfig()
+
+    // Backend URLs - Replace with your own
+    private let developmentURL = "http://localhost:3000"
+    private var productionURL = "YOUR_PRODUCTION_BACKEND_URL" // e.g., "https://your-app.vercel.app"
+
+    // Current active backend URL (determined at runtime)
+    private var _activeBackendURL: String?
+    private var _isUsingLocalhost: Bool = false
+    private var _isDevelopment: Bool = false
+
+    private init() {
+        #if DEBUG
+        _isDevelopment = true
+        print("🔧 [iOS] Running in DEBUG mode (Development)")
+        #else
+        _isDevelopment = false
+        print("🚀 [iOS] Running in RELEASE mode (Production)")
+        #endif
+    }
+
+    /// Get the active backend URL (with environment-based detection)
+    var activeBackendURL: String {
+        get async {
+            if let cachedURL = _activeBackendURL {
+                return cachedURL
+            }
+
+            if !_isDevelopment {
+                print("🚀 [iOS] Production mode - using production URL")
+                _activeBackendURL = productionURL
+                _isUsingLocalhost = false
+                return productionURL
+            }
+
+            let detectedURL = await detectAvailableBackend()
+            _activeBackendURL = detectedURL
+            return detectedURL
+        }
+    }
+
+    var isUsingLocalhost: Bool {
+        return _isUsingLocalhost
+    }
+
+    var isDevelopment: Bool {
+        return _isDevelopment
+    }
+
+    private func detectAvailableBackend() async -> String {
+        print("🔍 [iOS] Detecting available backend in development mode...")
+
+        if await testBackendConnectivity(developmentURL) {
+            print("✅ [iOS] Localhost backend detected: \(developmentURL)")
+            _isUsingLocalhost = true
+            return developmentURL
+        }
+
+        print("⚠️ [iOS] Localhost not available, using production URL")
+        _isUsingLocalhost = false
+        return productionURL
+    }
+
+    func forceProductionURL() {
+        print("🔧 [iOS] Forcing use of production URL")
+        _activeBackendURL = productionURL
+        _isUsingLocalhost = false
+    }
+
+    private func testBackendConnectivity(_ urlString: String) async -> Bool {
+        guard let url = URL(string: "\(urlString)/health") else {
+            print("❌ [iOS] Invalid URL: \(urlString)")
+            return false
+        }
+
+        do {
+            print("🔗 [iOS] Testing connectivity to: \(urlString)")
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 5.0
+            request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let httpResponse = response as? HTTPURLResponse {
+                let isReachable = httpResponse.statusCode == 200
+                print("📡 [iOS] \(urlString) - Status: \(httpResponse.statusCode), Reachable: \(isReachable)")
+                return isReachable
+            }
+
+            return false
+        } catch {
+            print("❌ [iOS] Connectivity test failed for \(urlString): \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func refreshBackendDetection() async -> String {
+        print("🔄 [iOS] Forcing backend detection refresh...")
+        _activeBackendURL = nil
+        return await activeBackendURL
+    }
+
+    func updateProductionURL(_ newURL: String) {
+        let cleanURL = newURL.hasSuffix("/") ? String(newURL.dropLast()) : newURL
+        print("🔧 [iOS] Updating production URL from \(productionURL) to: \(cleanURL)")
+        productionURL = cleanURL
+        _activeBackendURL = nil
+        print("✅ [iOS] Production URL updated successfully")
+    }
+
+    var currentProductionURL: String {
+        return productionURL
+    }
+
+    var currentDevelopmentURL: String {
+        return developmentURL
+    }
+}
+
+// MARK: - API Keys
+
+// Secret key for backend communication
+let secretKey = "YOUR_BACKEND_SECRET_KEY"
+
+// Brandfetch API key for company logos (optional)
+let brandfetchAPIKey = "YOUR_BRANDFETCH_API_KEY"
+
+// MARK: - RevenueCat Configuration
+// Get your API key from https://app.revenuecat.com
+// 1. Create a new project in RevenueCat
+// 2. Add your app (iOS) and configure App Store Connect credentials
+// 3. Create products in App Store Connect:
+//    - spendsmart_plus_monthly ($2.99/month)
+//    - spendsmart_plus_annual ($19.99/year)
+// 4. Create an "Offering" in RevenueCat with these products
+// 5. Create an "Entitlement" called "plus"
+// 6. Copy your public iOS API key below
+let revenueCatAPIKey = "YOUR_REVENUECAT_API_KEY"
+
+// MARK: - Supabase Configuration
+// Get these from your Supabase project dashboard
+// https://app.supabase.com/project/_/settings/api
+let supabaseURL = "YOUR_SUPABASE_URL"           // e.g., "https://xxxxx.supabase.co"
+let supabaseAnonKey = "YOUR_SUPABASE_ANON_KEY"  // The "anon" public key

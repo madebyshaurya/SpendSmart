@@ -81,3 +81,19 @@ SpendSmart/APIKeys.swift
 # Local configuration files
 *.local.json
 local.settings.json
+
+# AI Tooling (not part of the codebase)
+CLAUDE.md
+.claude/
+*.claude
+.cursor/
+.cursorrules
+.cursorignore
+.copilot/
+.agents/
+.opencode/
+opencode.json
+.mcp.json
+AGENTS.md
+**/AGENTS.md
+SHARE_EXTENSION_SETUP.md

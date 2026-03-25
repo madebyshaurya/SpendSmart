@@ -4,22 +4,27 @@
 <dict>
 	<key>UIAppFonts</key>
 	<array>
-		<string>SpaceGrotesk-Variable.ttf</string>
+		<string>IBMPlexMono-Regular.ttf</string>
+		<string>Manrope-Variable.ttf</string>
 		<string>InstrumentSerif-Regular.ttf</string>
-		<string>InstrumentSans-Variable.ttf</string>
 		<string>InstrumentSerif-Italic.ttf</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>SpendSmart uses your location to show nearby stores and spending patterns on the map.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>SpendSmart uses your camera to scan and digitize receipts.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>SpendSmart uses speech recognition to let you add expenses by voice.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SpendSmart needs microphone access to listen when you speak your expenses.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<false/>
 		<key>NSExceptionDomains</key>
 		<dict>
-			<!-- Development-only exceptions for localhost -->
 			<key>localhost</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
@@ -36,14 +41,6 @@
 				<key>NSExceptionMinimumTLSVersion</key>
 				<string>TLSv1.2</string>
 			</dict>
-			<key>192.168.68.63</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSExceptionMinimumTLSVersion</key>
-				<string>TLSv1.2</string>
-			</dict>
-			<!-- Production domain exceptions -->
 			<key>spend-smart-backend-iota.vercel.app</key>
 			<dict>
 				<key>NSExceptionMinimumTLSVersion</key>
@@ -62,5 +59,7 @@
 		<string>fetch</string>
 		<string>processing</string>
 	</array>
+	<key>UIUserInterfaceStyle</key>
+	<string>Light</string>
 </dict>
 </plist>

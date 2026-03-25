@@ -1,394 +1,253 @@
-//
-//  BrandfetchService.swift
-//  SpendSmart
-//
-//  Created by AI Assistant on 2025-01-25.
-//
-
 import Foundation
-import UIKit
 import SwiftUI
+import UIKit
 
-/// Service to fetch company logos and brand information from Brandfetch API
 class BrandfetchService: ObservableObject {
     static let shared = BrandfetchService()
-
     private let baseURL = "https://api.brandfetch.io/v2"
     private let cache = NSCache<NSString, UIImage>()
     private let colorCache = NSCache<NSString, NSArray>()
     private let urlCache = NSCache<NSString, NSString>()
-
-    private var apiKey: String {
-        return brandfetchAPIKey
-    }
+    private var apiKey: String { brandfetchAPIKey }
 
     private init() {
-        cache.countLimit = 100 // Limit cache to 100 images
-        cache.totalCostLimit = 50 * 1024 * 1024 // 50MB cache limit
+        cache.countLimit = 100
+        cache.totalCostLimit = 50 * 1024 * 1024
     }
 
-    // MARK: - Public API
-
-    /// Fetch logo URL for a company/brand by name or domain
-    /// - Parameters:
-    ///   - companyName: The name or domain of the company (e.g., "netflix" or "netflix.com")
-    ///   - size: Size parameter (ignored, kept for compatibility)
-    /// - Returns: URL string for the logo or nil if not found
     func getLogoURL(for companyName: String, size: Int = 128) -> String? {
-        let cacheKey = companyName.lowercased() as NSString
-
-        // Check cache first
-        if let cachedURL = urlCache.object(forKey: cacheKey) {
-            return cachedURL as String
-        }
-
-        // Note: Brandfetch requires an async API call to get the URL
-        // For synchronous access, return nil and let the caller use fetchLogo instead
-        return nil
+        urlCache.object(forKey: companyName.lowercased() as NSString) as String?
     }
 
-    /// Fetch logo URL for a company/brand by domain (async version)
-    /// - Parameters:
-    ///   - domain: The domain of the company (e.g., "netflix.com")
-    /// - Returns: URL string for the logo or nil if not found
     private func getLogoURLAsync(for domain: String) async -> String? {
-        let cleanDomain = cleanDomain(domain)
-        guard !cleanDomain.isEmpty else { return nil }
+        let clean = cleanDomain(domain)
+        guard !clean.isEmpty else { return nil }
+        if let cached = urlCache.object(forKey: clean as NSString) { return cached as String }
 
-        let cacheKey = cleanDomain as NSString
+        // Use the Logo API (CDN) directly which has higher limits (500k/mo)
+        // We prefer the icon, so we try that first
+        let iconURL = "https://asset.brandfetch.io/\(clean)?types=icon"
 
-        // Check cache first
-        if let cachedURL = urlCache.object(forKey: cacheKey) {
-            return cachedURL as String
+        // We verify if the icon exists by making a HEAD request or just returning it and letting the image loader handle 404s.
+        // For simplicity and speed in this specific service, we will trust the CDN to return something or handle the error in the image download.
+        // However, to be robust, we can try to fetch the icon, if it fails, fallback to logo (default).
+
+        // Let's return the icon URL first. The `fetchLogo` method can handle the fallback if the image download fails.
+        // Actually, to keep it simple: just return the base URL and let the fetcher decide params, or return the likely best one.
+        // User wants ICON.
+        return iconURL
+    }
+
+    func fetchLogo(for companyName: String, size: Int = 128) async -> UIImage? {
+        let key = "\(companyName.lowercased())_\(size)" as NSString
+        if let cached = cache.object(forKey: key) {
+            print("🟢 [Brandfetch] Cache hit for: \(companyName)")
+            return cached
         }
 
-        do {
-            let brandData = try await fetchBrandData(domain: cleanDomain)
-
-            // Extract logo URL from brand data
-            if let logos = brandData["logos"] as? [[String: Any]],
-               let firstLogo = logos.first,
-               let formats = firstLogo["formats"] as? [[String: Any]] {
-
-                // Prefer PNG format
-                for format in formats {
-                    if let formatType = format["format"] as? String,
-                       formatType == "png",
-                       let src = format["src"] as? String {
-                        urlCache.setObject(src as NSString, forKey: cacheKey)
-                        return src
-                    }
-                }
-
-                // Fallback to any format
-                if let src = formats.first?["src"] as? String {
-                    urlCache.setObject(src as NSString, forKey: cacheKey)
-                    return src
-                }
-            }
-        } catch {
-            print("❌ [BrandfetchService] Failed to fetch brand data for \(domain): \(error)")
+        // Use intelligent search first (Search API is free/high limit)
+        let domain: String
+        if let searchDomain = await searchBrand(query: companyName) {
+            print("🎯 [Brandfetch] Search found domain: \(searchDomain) for query: \(companyName)")
+            domain = searchDomain
+        } else {
+            domain = nameToDomain(companyName)
+            print("⚠️ [Brandfetch] Search failed, fallback to guessed domain: \(domain)")
         }
 
+        print("🔍 [Brandfetch] Fetching logo for: \(companyName) -> Domain: \(domain)")
+
+        // Try to fetch Icon first
+        // User provided Client ID: 1idrjASAupLrprMSzYV
+        let clientId = "1idrjASAupLrprMSzYV"
+        let iconURLString = "https://cdn.brandfetch.io/\(domain)?types=icon&c=\(clientId)"
+        // Fallback to default (logo) if icon fails or returns 404
+        let logoURLString = "https://cdn.brandfetch.io/\(domain)?c=\(clientId)"
+
+        if let image = await downloadImage(urlString: iconURLString) {
+            print("✅ [Brandfetch] downloaded ICON for: \(companyName)")
+            cache.setObject(image, forKey: key, cost: 100)  // approx cost
+            urlCache.setObject(
+                iconURLString as NSString, forKey: companyName.lowercased() as NSString)
+            return image
+        } else if let image = await downloadImage(urlString: logoURLString) {
+            print("✅ [Brandfetch] downloaded LOGO (fallback) for: \(companyName)")
+            cache.setObject(image, forKey: key, cost: 100)
+            urlCache.setObject(
+                logoURLString as NSString, forKey: companyName.lowercased() as NSString)
+            return image
+        }
+
+        print("❌ [Brandfetch] All downloads failed for: \(domain)")
         return nil
     }
 
-    /// Fetch logo image for a company/brand
-    /// - Parameters:
-    ///   - companyName: The name of the company
-    ///   - size: The desired size of the logo
-    /// - Returns: UIImage or nil if not found
-    func fetchLogo(for companyName: String, size: Int = 128) async -> UIImage? {
-        let cacheKey = "\(companyName.lowercased())_\(size)" as NSString
-
-        // Check cache first
-        if let cachedImage = cache.object(forKey: cacheKey) {
-            return cachedImage
-        }
-
-        let domain = nameToDomain(companyName)
-        guard let logoURL = await getLogoURLAsync(for: domain),
-              let url = URL(string: logoURL) else {
-            return nil
-        }
-
+    private func downloadImage(urlString: String) async -> UIImage? {
+        guard let url = URL(string: urlString) else { return nil }
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
-
-            if let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 200,
-               let image = UIImage(data: data) {
-
-                // Cache the image and URL
-                let cost = data.count
-                cache.setObject(image, forKey: cacheKey, cost: cost)
-                urlCache.setObject(logoURL as NSString, forKey: companyName.lowercased() as NSString)
-
+            if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200,
+                let image = UIImage(data: data)
+            {
                 return image
             }
-        } catch {
-            print("❌ [BrandfetchService] Failed to fetch logo for \(companyName): \(error)")
-        }
-
+        } catch {}
         return nil
     }
 
-    /// Fetch logo and colors for a receipt
-    /// - Parameter receipt: The receipt to fetch logo for
-    /// - Returns: Tuple of (UIImage, [Color]) - always returns a valid image (placeholder if needed)
     func fetchLogoForReceipt(_ receipt: Receipt) async -> (UIImage, [Color]) {
-        let storeName = receipt.store_name
-        let (image, colors) = await fetchLogoAndColors(for: storeName)
-
-        // If we didn't get an image, generate a placeholder
-        if let image = image {
-            return (image, colors)
-        } else {
-            let placeholder = generatePlaceholderImage(for: storeName)
-            return (placeholder, colors)
-        }
+        let query = receipt.logo_search_term ?? receipt.store_name
+        print(
+            "🧐 [Brandfetch] Processing receipt for store: '\(receipt.store_name)' using query: '\(query)'"
+        )
+        let (image, colors) = await fetchLogoAndColors(for: query)
+        if image == nil { print("⚠️ [Brandfetch] Using placeholder for: \(receipt.store_name)") }
+        return (image ?? generatePlaceholderImage(for: receipt.store_name), colors)
     }
 
-    /// Fetch logo and colors for a store location (used by MapMarkerView)
-    /// - Parameter storeLocation: The store location
-    /// - Returns: Tuple of (UIImage?, [Color])
-    func fetchLogoForStoreLocation(_ storeLocation: StoreLocation) async -> (UIImage?, [Color]) {
-        return await fetchLogoAndColors(for: storeLocation.name)
-    }
-
-    /// Fetch logo and colors for a store name
-    /// - Parameter storeName: The name of the store
-    /// - Returns: Tuple of (UIImage?, [Color])
     func fetchLogoAndColors(for storeName: String) async -> (UIImage?, [Color]) {
-        let cacheKey = storeName.lowercased() as NSString
-
-        // Check cache first
-        if let cachedImage = cache.object(forKey: cacheKey),
-           let cachedColors = colorCache.object(forKey: cacheKey) as? [Color] {
-            return (cachedImage, cachedColors)
+        let key = storeName.lowercased() as NSString
+        if let img = cache.object(forKey: key),
+            let cols = colorCache.object(forKey: key) as? [Color]
+        {
+            return (img, cols)
         }
 
-        let domain = nameToDomain(storeName)
+        let domain: String
+        let searchDomain = await searchBrand(query: storeName)
+        if let searchDomain = searchDomain {
+            print("🎯 [Brandfetch] Search found domain: \(searchDomain) for query: \(storeName)")
+            domain = searchDomain
+        } else {
+            domain = nameToDomain(storeName)
+            print("⚠️ [Brandfetch] Search failed, fallback to guessed domain: \(domain)")
+        }
+
+        // Try Icon first, then Logo
+        let clientId = "1idrjASAupLrprMSzYV"
+        let iconURLString = "https://cdn.brandfetch.io/\(domain)?types=icon&c=\(clientId)"
+        let logoURLString = "https://cdn.brandfetch.io/\(domain)?c=\(clientId)"
+
+        var logo: UIImage? = await downloadImage(urlString: iconURLString)
+        var validURL = iconURLString
+
+        if logo == nil {
+            logo = await downloadImage(urlString: logoURLString)
+            validURL = logoURLString
+        }
+
+        if logo != nil {
+            urlCache.setObject(validURL as NSString, forKey: key)
+        }
+
+        var colors: [Color] = []
+        // With direct Logo API, we don't get colors automatically. We generate them.
+        // Or if we really needed them, we'd have to use Brand API which is limited.
+        // Strategy: Use generated colors from name as fallback, which is fine.
+        colors = generateColors(for: storeName)
+
+        if let logo = logo { cache.setObject(logo, forKey: key) }
+        colorCache.setObject(colors as NSArray, forKey: key)
+        return (logo, colors)
+    }
+
+    private func searchBrand(query: String) async -> String? {
+        // Brandfetch Search API
+        guard
+            let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+            let url = URL(string: "\(baseURL)/search/\(encodedQuery)")
+        else { return nil }
+
+        print("🔎 [Brandfetch] Searching API: \(url.absoluteString)")
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         do {
-            let brandData = try await fetchBrandData(domain: domain)
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let httpResp = response as? HTTPURLResponse else { return nil }
 
-            // Extract logo URL
-            var logoImage: UIImage?
-            if let logos = brandData["logos"] as? [[String: Any]],
-               let firstLogo = logos.first,
-               let formats = firstLogo["formats"] as? [[String: Any]] {
-
-                // Get logo URL
-                var logoURLString: String?
-                for format in formats {
-                    if let formatType = format["format"] as? String,
-                       formatType == "png",
-                       let src = format["src"] as? String {
-                        logoURLString = src
-                        break
-                    }
-                }
-
-                if logoURLString == nil, let src = formats.first?["src"] as? String {
-                    logoURLString = src
-                }
-
-                // Fetch logo image
-                if let logoURLString = logoURLString,
-                   let url = URL(string: logoURLString) {
-                    let (data, _) = try await URLSession.shared.data(from: url)
-                    logoImage = UIImage(data: data)
-
-                    // Cache the URL
-                    urlCache.setObject(logoURLString as NSString, forKey: cacheKey)
-                }
+            if httpResp.statusCode != 200 {
+                print("⚠️ [Brandfetch] Search API returned status: \(httpResp.statusCode)")
+                if let str = String(data: data, encoding: .utf8) { print("   Response: \(str)") }
+                return nil
             }
 
-            // Extract brand colors
-            var colors: [Color] = []
-            if let brandColors = brandData["colors"] as? [[String: Any]] {
-                for colorData in brandColors.prefix(3) {
-                    if let hex = colorData["hex"] as? String {
-                        let color = Color(hex: hex)
-                        colors.append(color)
-                    }
-                }
+            // Response is an array of brand objects
+            if let results = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                let firstResult = results.first,
+                let domain = firstResult["domain"] as? String
+            {
+                return domain
+            } else {
+                print("⚠️ [Brandfetch] No results found in search for: \(query)")
             }
-
-            // Fallback to generated colors if no colors found
-            if colors.isEmpty {
-                colors = generateColors(for: storeName)
-            }
-
-            // Cache results
-            if let logoImage = logoImage {
-                cache.setObject(logoImage, forKey: cacheKey)
-            }
-            colorCache.setObject(colors as NSArray, forKey: cacheKey)
-
-            return (logoImage, colors)
-
         } catch {
-            print("❌ [BrandfetchService] Failed to fetch brand data for \(storeName): \(error)")
+            print("❌ [Brandfetch] Search network error: \(error)")
         }
-
-        // Fallback: Generate placeholder colors
-        let colors = generateColors(for: storeName)
-        return (nil, colors)
+        return nil
     }
 
-    // MARK: - Private Helpers
+    // Brand API fetchBrandData removed to use high-limit Logo API instead.
 
-    /// Fetch brand data from Brandfetch API
-    private func fetchBrandData(domain: String) async throws -> [String: Any] {
-        let cleanDomain = cleanDomain(domain)
-        guard let url = URL(string: "\(baseURL)/brands/\(cleanDomain)") else {
-            throw BrandfetchError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10.0
-
-        print("🔍 [BrandfetchService] Fetching brand data from: \(url.absoluteString)")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BrandfetchError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            print("❌ [BrandfetchService] API returned status code: \(httpResponse.statusCode)")
-            throw BrandfetchError.apiError(statusCode: httpResponse.statusCode)
-        }
-
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw BrandfetchError.invalidJSON
-        }
-
-        print("✅ [BrandfetchService] Successfully fetched brand data for \(domain)")
-        return json
-    }
-
-    /// Convert company name to domain format
     private func nameToDomain(_ name: String) -> String {
-        let cleaned = name.lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "+", with: "plus")
-            .replacingOccurrences(of: "&", with: "and")
-            .replacingOccurrences(of: "'", with: "")
+        let cleaned = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "+", with: "plus")
+            .replacingOccurrences(of: "&", with: "and").replacingOccurrences(of: "'", with: "")
             .replacingOccurrences(of: ".", with: "")
-
-        // If it already looks like a domain, return as is
-        if cleaned.contains(".") {
-            return cleaned
-        }
-
-        // Otherwise append .com
-        return "\(cleaned).com"
+        let result = cleaned.contains(".") ? cleaned : "\(cleaned).com"
+        print("🧠 [Brandfetch] Guessed domain: \(result) from name: \(name)")
+        return result
     }
 
-    /// Clean domain string
     private func cleanDomain(_ domain: String) -> String {
-        var cleaned = domain.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Remove http/https prefix
-        cleaned = cleaned.replacingOccurrences(of: "https://", with: "")
-        cleaned = cleaned.replacingOccurrences(of: "http://", with: "")
-
-        // Remove www prefix
-        cleaned = cleaned.replacingOccurrences(of: "www.", with: "")
-
-        // Remove trailing slash
-        if cleaned.hasSuffix("/") {
-            cleaned = String(cleaned.dropLast())
-        }
-
-        // If no domain extension, add .com
-        if !cleaned.contains(".") {
-            cleaned = "\(cleaned).com"
-        }
-
-        return cleaned
+        var clean = domain.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "https://", with: "").replacingOccurrences(
+                of: "http://", with: ""
+            ).replacingOccurrences(of: "www.", with: "")
+        if clean.hasSuffix("/") { clean = String(clean.dropLast()) }
+        let result = clean.contains(".") ? clean : "\(clean).com"
+        return result
     }
 
-    /// Generate placeholder colors based on store name
     private func generateColors(for storeName: String) -> [Color] {
-        let hash = abs(storeName.lowercased().hashValue)
-        let hue = Double(hash % 360) / 360.0
-
+        let h = Double(abs(storeName.lowercased().hashValue) % 360) / 360.0
         return [
-            Color(hue: hue, saturation: 0.6, brightness: 0.8),
-            Color(hue: hue, saturation: 0.5, brightness: 0.7),
-            Color(hue: hue, saturation: 0.4, brightness: 0.6)
+            Color(hue: h, saturation: 0.6, brightness: 0.8),
+            Color(hue: h, saturation: 0.5, brightness: 0.7),
+            Color(hue: h, saturation: 0.4, brightness: 0.6),
         ]
     }
 
-    /// Generate placeholder image with store initials
-    func generatePlaceholderImage(for storeName: String, size: CGSize = CGSize(width: 100, height: 100)) -> UIImage {
+    func generatePlaceholderImage(
+        for storeName: String, size: CGSize = CGSize(width: 100, height: 100)
+    ) -> UIImage {
         let colors = generateColors(for: storeName)
-
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let image = renderer.image { context in
-            // Draw gradient background
-            let gradient = CGGradient(
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let grad = CGGradient(
                 colorsSpace: CGColorSpaceCreateDeviceRGB(),
                 colors: [UIColor(colors[0]).cgColor, UIColor(colors[1]).cgColor] as CFArray,
-                locations: [0.0, 1.0]
-            )!
-
-            context.cgContext.drawLinearGradient(
-                gradient,
-                start: CGPoint(x: 0, y: 0),
-                end: CGPoint(x: size.width, y: size.height),
-                options: []
-            )
-
-            // Draw store initials
+                locations: [0, 1])!
+            ctx.cgContext.drawLinearGradient(
+                grad, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
             let initials = getInitials(from: storeName)
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.alignment = .center
-
-            let fontSize = min(size.width, size.height) * 0.4
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
+            let attr: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: min(size.width, size.height) * 0.4, weight: .bold),
                 .foregroundColor: UIColor.white,
-                .paragraphStyle: paragraphStyle
             ]
-
-            let textSize = initials.size(withAttributes: attributes)
-            let textRect = CGRect(
-                x: (size.width - textSize.width) / 2,
-                y: (size.height - textSize.height) / 2,
-                width: textSize.width,
-                height: textSize.height
-            )
-
-            initials.draw(in: textRect, withAttributes: attributes)
+            let sz = initials.size(withAttributes: attr)
+            initials.draw(
+                in: CGRect(
+                    x: (size.width - sz.width) / 2, y: (size.height - sz.height) / 2,
+                    width: sz.width, height: sz.height), withAttributes: attr)
         }
-
-        return image
     }
 
-    /// Get initials from store name
     private func getInitials(from name: String) -> String {
-        let words = name.components(separatedBy: CharacterSet.whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-
-        if words.count >= 2 {
-            return String(words[0].prefix(1) + words[1].prefix(1)).uppercased()
-        } else if let firstWord = words.first {
-            return String(firstWord.prefix(2)).uppercased()
-        }
-
-        return "?"
+        let words = name.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        if words.count >= 2 { return String(words[0].prefix(1) + words[1].prefix(1)).uppercased() }
+        return String(words.first?.prefix(2) ?? "?").uppercased()
     }
 
-    /// Clear all caches
     func clearCache() {
         cache.removeAllObjects()
         colorCache.removeAllObjects()
@@ -396,13 +255,7 @@ class BrandfetchService: ObservableObject {
     }
 }
 
-// MARK: - Error Types
-
 enum BrandfetchError: Error {
-    case invalidURL
-    case invalidResponse
-    case invalidJSON
+    case invalidURL, invalidResponse, invalidJSON
     case apiError(statusCode: Int)
 }
-
-// Note: Color.init(hex:) extension is already defined in Utils/Extensions.swift
