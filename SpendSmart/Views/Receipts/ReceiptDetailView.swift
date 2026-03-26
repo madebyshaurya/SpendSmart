@@ -188,6 +188,8 @@ struct ReceiptDetailView: View {
                     .font(.ibmPlexMono(size: 48))
                     .monospacedDigit()
                     .foregroundStyle(Color.brandTextPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
 
                 if receipt.currency != CurrencyService.shared.preferredCurrency {
                     Text("Converted from \(receipt.currency)")

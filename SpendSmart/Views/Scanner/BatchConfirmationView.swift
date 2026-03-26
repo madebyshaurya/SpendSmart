@@ -122,7 +122,7 @@ struct BatchConfirmationView: View {
                         .foregroundColor(.brandTextPrimary)
 
                     if let amount = response.total_amount {
-                        Text("$\(amount, specifier: "%.2f")")
+                        Text(CurrencyService.shared.formatAmount(amount, currency: CurrencyService.shared.preferredCurrency))
                             .font(.ibmPlexMono(size: 14))
                             .foregroundColor(.brandVibrantBlue)
                             .monospacedDigit()

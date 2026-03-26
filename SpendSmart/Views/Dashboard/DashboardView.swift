@@ -27,7 +27,7 @@ struct DashboardView: View {
                         .background(Color.brandBackground)
                 } else {
                     ScrollView {
-                        VStack(spacing: 20) {
+                        VStack(spacing: 24) {
 
                             // 1. Compact header — greeting + streak badge + settings gear
                             HStack(alignment: .center, spacing: 12) {
@@ -51,11 +51,12 @@ struct DashboardView: View {
                                     ZStack {
                                         Circle()
                                             .fill(Color.brandAccentLight)
-                                            .frame(width: 38, height: 38)
+                                            .frame(width: 40, height: 40)
                                         Text(viewModel.userEmoji)
                                             .font(.system(size: 18))
                                     }
                                 }
+                                .accessibilityLabel("Settings")
                             }
                             .animateEntrance(index: 0)
 
@@ -204,7 +205,7 @@ struct DashboardView: View {
                 .foregroundStyle(iconColor)
                 .frame(width: 40, height: 40)
                 .background(iconColor.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
@@ -221,12 +222,12 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(Color.brandSurface)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: 16)
                         .stroke(Color.brandBorder, lineWidth: 1)
                 )
         )
@@ -776,7 +777,7 @@ private struct DiscoveryBanner: View {
                     .foregroundColor(.brandTextTertiary)
             }
         }
-        .padding(14)
+        .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.brandVibrantBlue.opacity(0.06))

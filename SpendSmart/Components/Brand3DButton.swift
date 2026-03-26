@@ -83,7 +83,7 @@ struct Brand3DButton: View {
             HapticManager.shared.medium()
             action()
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 if isLoading {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: textColor))

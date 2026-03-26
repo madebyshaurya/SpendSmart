@@ -148,7 +148,7 @@ struct SettingsView: View {
                             .foregroundStyle(Color.brandTextPrimary)
                         Text("Spending alerts & reminders")
                             .font(.manrope(size: 12))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.brandTextSecondary)
                     }
                 }
             }
@@ -166,7 +166,7 @@ struct SettingsView: View {
                             .font(.manrope(size: 15, weight: .medium))
                         Text("Feel taps and vibrations")
                             .font(.manrope(size: 12))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.brandTextSecondary)
                     }
                 }
             }
@@ -204,7 +204,7 @@ struct SettingsView: View {
                             .foregroundStyle(Color.brandTextSecondary)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(Color.brandTextTertiary)
                     }
                 }
             }
@@ -273,7 +273,7 @@ struct SettingsView: View {
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(Color.brandTextTertiary)
                     }
                 }
             } else {
@@ -312,7 +312,7 @@ struct SettingsView: View {
                         
                         Image(systemName: "chevron.right")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(Color.brandTextTertiary)
                     }
                     .padding(.vertical, 8)
                 }
@@ -400,7 +400,7 @@ struct SettingsView: View {
                 Text("Version")
                 Spacer()
                 Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.brandTextSecondary)
             }
             
             if let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
@@ -408,7 +408,7 @@ struct SettingsView: View {
                     Text("Build")
                     Spacer()
                     Text(build)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.brandTextSecondary)
                 }
             }
             
@@ -424,10 +424,10 @@ struct SettingsView: View {
                         Spacer()
                         Text(userId.uuidString.prefix(8) + "...")
                             .font(.system(.body, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.brandTextSecondary)
                         Image(systemName: "doc.on.doc")
                             .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(Color.brandTextTertiary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -464,7 +464,7 @@ struct SettingsView: View {
         .padding(.vertical, 14)
         .padding(.horizontal, 20)
         .background(
-            (viewModel.isToastError ? Color.red : Color.green).opacity(0.9)
+            (viewModel.isToastError ? Color.brandError : Color.brandSuccess).opacity(0.9)
         )
         .cornerRadius(30)
         .padding(.top, 60)

@@ -56,7 +56,7 @@ struct SpendingShareCard: View {
                         Text("\(abs(Int(pct)))% vs last period")
                             .font(.manrope(size: 11, weight: .medium))
                     }
-                    .foregroundColor(pct >= 0 ? Color.orange.opacity(0.9) : Color.green.opacity(0.9))
+                    .foregroundColor(pct >= 0 ? Color.brandWarning : Color.brandSuccess)
                 }
 
                 Spacer()

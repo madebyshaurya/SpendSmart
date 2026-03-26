@@ -40,7 +40,7 @@ struct ScanStreakView: View {
                             .monospacedDigit()
                             .contentTransition(.numericText())
 
-                        Text(streakCount == 1 ? "day streak" : "day streak")
+                        Text("day streak")
                             .font(.manrope(size: 14, weight: .medium))
                             .foregroundStyle(Color.brandTextSecondary)
                     }
@@ -75,10 +75,10 @@ struct ScanStreakView: View {
         }
         .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(Color.brandSurface)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: 16)
                         .stroke(streakCount > 0 ? flameColor.opacity(0.2) : Color.brandBorder, lineWidth: 1)
                 )
         )

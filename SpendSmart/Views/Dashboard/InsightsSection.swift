@@ -91,7 +91,7 @@ struct InsightsSection: View {
                 .lineLimit(3)
 
             if let amount = insight.amount {
-                Text("$\(amount, specifier: "%.0f")")
+                Text(CurrencyService.shared.formatAmount(amount, currency: CurrencyService.shared.preferredCurrency))
                     .font(.ibmPlexMono(size: 18))
                     .foregroundColor(.brandVibrantBlue)
                     .monospacedDigit()
@@ -112,7 +112,6 @@ struct InsightsSection: View {
             haptics.selection()
             insightsEngine.markAsRead(insight)
         }
-        .scaleEffect(insight.isRead ? 1.0 : 1.0)
     }
 
     // MARK: - Empty State
