@@ -1,7 +1,8 @@
 <div align="center">
   <img src="https://github.com/user-attachments/assets/a0819fb3-ffe6-458f-b1aa-134dcaa3491b" alt="SpendSmart Logo" width="120"/>
-  <h1>SpendSmart — Turn Clutter into Clarity</h1>
-  <p><strong>AI-Powered Receipt Tracking & Expense Intelligence for iOS</strong></p>
+  <h1>SpendSmart</h1>
+  <p><strong>Less clutter, more clarity.</strong></p>
+  <p>AI-powered receipt tracking and expense intelligence for iOS.</p>
 
   <a href="https://apps.apple.com/us/app/spendsmart-ai-receipt-tool/id6745190294">
     <img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-app-store/black/en-us?releaseDate=1747180800" alt="Download on the App Store" width="160" />
@@ -10,106 +11,103 @@
 
 ---
 
-Snap a photo of your receipts — or just say what you spent — and SpendSmart turns them into a beautiful dashboard, spending map, AI chat, and smart insights. No bank connection needed. Open source.
+Snap a photo of your receipts, or just say what you spent, and SpendSmart turns it into a clean dashboard, a spending map, an AI chat, and smart insights. No bank connection needed.
+
+## Project status
+
+I'm no longer actively developing SpendSmart, but the app is live and the code is open source under the MIT license. **Contributions are very welcome.** Fork it, fix something, add a feature, or build on top of it. See [Contributing](#contributing) below to get started.
 
 ## Features
 
-**Scanning**
-- AI-powered receipt scanning (camera, photos, files)
-- Batch mode — scan multiple receipts in one session
-- Voice entry — "I spent $12 at Starbucks"
-- Multi-page receipt stitching
+| Area | What it does |
+|------|--------------|
+| **Scanning** | AI receipt scanning (camera, photos, files), batch mode, voice entry ("I spent $12 at Starbucks"), multi-page stitching |
+| **Intelligence** | Smart spending insights, AI chat about your expenses, 8 chart types, store-location spending map |
+| **Experience** | Shareable spending cards, haptics, animated micro-interactions, 10-step onboarding with an interactive scan demo |
 
-**Intelligence**
-- Smart Spending Insights — alerts when your habits change (Plus)
-- AI Chat — ask your expenses questions in natural language
-- 8 chart types: trends, heatmaps, category breakdowns, time-of-day
-- Store location map with spending clusters
+The app uses a freemium model (RevenueCat): a free tier with weekly scan limits, and a Plus tier with unlimited scanning, smart insights, cloud sync, and data export.
 
-**Experience**
-- Shareable spending cards for social media
-- Micro-interactions (press feedback, animated numbers, staggered entrances)
-- Haptic feedback throughout
-- Progressive feature discovery
-- 10-step onboarding with interactive scanning demo
+## Tech stack
 
-**Monetization (Freemium)**
-- Free: 5 scans/week, full dashboard, 5 AI chat messages/day
-- Plus ($2.99/mo): unlimited scans, Smart Insights, unlimited chat, cloud sync, data export
-
-## Tech Stack
-
-- **iOS:** Swift + SwiftUI (iOS 18.0+)
-- **AI Pipeline:** Gemini 2.5 Flash (validation + parsing) + Mistral OCR (text extraction)
-- **Backend:** Express.js on Vercel (serverless)
+- **App:** Swift + SwiftUI (iOS 18.0+), MVVM architecture
 - **Database & Auth:** Supabase (Postgres + Apple Sign-In)
 - **Subscriptions:** RevenueCat (StoreKit 2)
-- **Image Hosting:** ImgBB
-- **Security:** Keychain for auth tokens, per-user rate limiting
+- **AI pipeline:** Gemini 2.5 Flash (validation + parsing) and Mistral OCR (text extraction)
+- **Backend:** Express.js on Vercel (serverless)
 
-## Requirements
+## Getting started
 
-- iOS 18.0+
-- Xcode 16+
+### Requirements
 
-## Setup
+- macOS with **Xcode 16+**
+- iOS 18.0+ device or simulator
 
-1. Clone the repository
+### Steps
+
+1. **Clone the repo**
    ```bash
    git clone https://github.com/madebyshaurya/SpendSmart.git
    cd SpendSmart
    ```
 
-2. Copy the API keys template
+2. **Create your API keys file** from the template
    ```bash
    cp SpendSmart/App/APIKeys.template.swift.example SpendSmart/App/APIKeys.swift
    ```
+   `APIKeys.swift` is gitignored, so your keys never get committed.
 
-3. Fill in your API keys in `APIKeys.swift`:
-   - Supabase URL and anon key
-   - RevenueCat API key
-   - Backend secret key
-   - Brandfetch API key
+3. **Fill in your keys** in `APIKeys.swift`. The template explains where to get each one:
 
-4. Open in Xcode and run
+   | Key | Where to get it | Required? |
+   |-----|-----------------|-----------|
+   | `supabaseURL` / `supabaseAnonKey` | [Supabase dashboard](https://app.supabase.com) → Project Settings → API | Yes (auth + storage) |
+   | `revenueCatAPIKey` | [RevenueCat](https://app.revenuecat.com) → project API keys | Yes (subscriptions) |
+   | `secretKey` | Your backend's shared secret | For AI features |
+   | `productionURL` | Your deployed backend URL | For AI features |
+   | `brandfetchAPIKey` | [Brandfetch](https://brandfetch.com) | Optional (store logos) |
+
+4. **Open and run**
    ```bash
    open SpendSmart.xcodeproj
    ```
 
-## Project Structure
+> [!NOTE]
+> **About the backend.** AI receipt scanning, chat, and insights call a small backend service (Express on Vercel using Gemini + Mistral OCR). That backend isn't included in this repo. The app builds, runs, and signs in without it, but you'll need to point `productionURL` (or a local `http://localhost:3000`) at your own backend that implements the same endpoints for AI features to work.
+
+## Project structure
 
 ```
 SpendSmart/
-├── App/                  # Entry point, API keys, constants
-├── Core/                 # Supabase, backend API, local storage, Keychain
-├── Services/             # AI, subscriptions, haptics, insights, batch processing
-├── ViewModels/           # MVVM view models (9 files)
-├── Models/               # Receipt, Profile, AppState, ChatChart
-├── Views/
-│   ├── Auth/             # Apple Sign-In
-│   ├── Dashboard/        # Dashboard + sections + share cards + insights
-│   ├── Scanner/          # Camera, batch, voice entry
-│   ├── Receipts/         # List, detail, confirmation, manual entry
-│   ├── Chat/             # AI chat with charts
-│   ├── Map/              # Store locations
-│   ├── Settings/         # Profile, usage, storage, export
-│   ├── Subscription/     # Paywall, purchase success
-│   ├── Onboarding/       # 10-step flow with paywall
-│   └── Statistics/       # Advanced analytics
-├── Components/           # Brand3DButton, BrandCard, BrandToast, skeletons
-├── Charts/               # 8 chart types
-├── Extensions/           # Color, Font, Animation, UIImage
-└── Illustrations/        # Animated SVG illustrations
+├── App/            # Entry point, API keys, app constants
+├── Core/           # Supabase, backend API, local storage, Keychain
+├── Services/       # AI, subscriptions, haptics, insights, batch processing
+├── ViewModels/     # MVVM view models
+├── Models/         # Receipt, Profile, AppState, ChatChart
+├── Views/          # Auth, Dashboard, Scanner, Receipts, Chat, Map,
+│                   #   Settings, Subscription, Onboarding, Statistics
+├── Components/     # Reusable UI: buttons, cards, toasts, skeletons
+├── Charts/         # 8 chart types
+├── Extensions/     # Color, Font, Animation, UIImage helpers
+└── Illustrations/  # Animated illustrations
 ```
+
+## Contributing
+
+Pull requests are welcome, whether it's a bug fix, a new chart, a UI polish, or docs.
+
+1. Fork the repo and create a branch: `git checkout -b my-change`
+2. Make your change. Match the existing style: SwiftUI + MVVM, and reuse the components in `Components/` and the design tokens in `Extensions/` so things stay visually consistent.
+3. Build and run on a simulator to confirm it works.
+4. Open a PR with a short description of what you changed and why.
+
+No formal CLA or process. Keep PRs focused and they'll be easier to review.
 
 ## License
 
-MIT
-
-## Support
-
-For help or questions, email [shaurya50211@gmail.com](mailto:shaurya50211@gmail.com)
+[MIT](LICENSE) © 2025 Shaurya Gupta
 
 ---
 
-Built by [Shaurya Gupta](https://twitter.com/madebyshaurya)
+<div align="center">
+  Built by <a href="https://twitter.com/madebyshaurya">Shaurya Gupta</a>
+</div>
